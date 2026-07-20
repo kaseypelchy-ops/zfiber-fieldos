@@ -1,0 +1,52 @@
+name: Minify & Deploy
+
+# Runs automatically every time you push to main
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to push the minified files back
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install minifiers
+        run: npm install -g terser csso-cli
+
+      # Minify app.js in-place (overwrites the source file in the build)
+      - name: Minify app.js
+        run: terser app.js --compress passes=2 --mangle --output app.js
+
+      # Minify style.css in-place
+      - name: Minify style.css
+        run: csso style.css --output style.css
+
+      # Bump the service worker cache version to the current git SHA
+      # so all reps get fresh files after every deploy
+      - name: Bump SW cache version
+        run: |
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          sed -i "s/var CACHE_VERSION = .*/var CACHE_VERSION = 'fieldos-$SHA';/" sw.js
+          echo "Cache version set to fieldos-$SHA"
+
+      # Inject the same SHA into index.html ?v= cache-bust params so
+      # browsers always fetch fresh app.js and style.css after a deploy
+      - name: Inject cache-bust version into index.html
+        run: |
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          sed -i "s/app\.js?v=[^\"']*/app.js?v=$SHA/g" index.html
+          sed -i "s/style\.css?v=[^\"']*/style.css?v=$SHA/g" index.html
+          echo "Cache-bust version set to $SHA in index.html"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./        # deploy the whole repo root
+          publish_branch: gh-pages
+          exclude_assets: '.github,*.md,package*.json'

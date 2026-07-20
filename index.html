@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Zito FieldOS</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#005696">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FieldOS">
+<link rel="apple-touch-icon" href="https://www.zitomedia.net/wp-content/uploads/2025/03/Untitled-design-6.png">
+<link rel="icon" type="image/png" href="https://www.zitomedia.net/wp-content/uploads/2025/03/Untitled-design-6.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://server.arcgisonline.com">
+<link rel="preconnect" href="https://nominatim.openstreetmap.org">
+<link rel="preconnect" href="https://services.arcgisonline.com">
+<link rel="dns-prefetch" href="https://script.google.com">
+
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css"/>
+<link rel="stylesheet" href="style.css?v=fieldos-clean-login-20260707">
+</head>
+<body>
+
+<div id="splash" class="gone">
+  <div class="splash-grid"></div>
+  <div class="splash-glow"></div>
+  <div class="splash-rings">
+    <div class="splash-ring"></div>
+    <div class="splash-ring"></div>
+    <div class="splash-ring"></div>
+    <div class="splash-ring"></div>
+  </div>
+  <div class="splash-body">
+    <div class="splash-logo">
+      <img src="https://www.zitomedia.net/wp-content/uploads/2025/03/Untitled-design-6.png" alt="Zito Media">
+    </div>
+    <div class="splash-line"></div>
+    <div class="splash-tag">Field Operations & Sales Intelligence</div>
+    <div class="splash-name" id="splash-rep-name"></div>
+    <div class="splash-dots">
+      <div class="splash-dot"></div>
+      <div class="splash-dot"></div>
+      <div class="splash-dot"></div>
+    </div>
+    <div class="splash-prog-wrap">
+      <div class="splash-prog-track">
+        <div class="splash-prog-fill" id="splash-prog-fill"></div>
+      </div>
+      <div class="splash-prog-label">Loading session…</div>
+    </div>
+  </div>
+  <div class="splash-ver">ZITO FIELDOS v1.0.3 • Production • Build 2026.02.22</div>
+</div>
+
+<div id="signout-confirm">
+  <div class="signout-box">
+    <div class="signout-icon">👋</div>
+    <div class="signout-title">End Session?</div>
+    <div class="signout-msg">Your availability will be set to Offline and your session will be securely closed.</div>
+    <div class="signout-btns">
+      <button class="signout-cancel" onclick="closeSignOutConfirm()">Cancel</button>
+      <button class="signout-confirm-btn" onclick="confirmSignOut()">End Session</button>
+    </div>
+  </div>
+</div>
+
+<div id="page-setup">
+  <div class="logo-bar compact-login-logo">
+    <img src="https://www.zitomedia.net/wp-content/uploads/2025/03/Untitled-design-6.png" alt="Zito Media Logo">
+  </div>
+
+  <div class="setup-card login-only-card">
+    <div class="login-badge">Zito FieldOS</div>
+    <h1>Start Sales Session</h1>
+    <p class="sub">Enter your first and last name. FieldOS will automatically load your assigned addresses, pricing, and territory map when you launch.</p>
+
+    <div class="step hidden-setup-control" id="team-step" aria-hidden="true">
+      <select class="txt-in team-select" id="team-select" onchange="selectTeam(this.value)">
+        <option value="">— Choose a team —</option>
+      </select>
+    </div>
+
+    <div class="step login-name-step">
+      <label class="slabel" for="rep-name">First & Last Name</label>
+      <input class="txt-in login-name-input" type="text" id="rep-name" placeholder="e.g. John Smith" oninput="validateRepName()" autocomplete="name" autofocus>
+      <div id="rep-name-hint">⚠ Please enter your first and last name</div>
+      <div id="rep-profile-status"></div>
+      <div id="fetch-addr-status" class="dz-status"></div>
+    </div>
+
+    <button class="btn-launch" id="launch-btn" disabled onclick="launchApp()">Load & Launch</button>
+
+    <div class="login-footnote">
+      Addresses, offers, and territory boundaries load automatically for your assigned team.
+    </div>
+  </div>
+</div>
+
+<div id="page-app">
+  <div id="topbar">
+    <div class="tb-logo">
+      <img src="https://www.zitomedia.net/wp-content/uploads/2025/03/Untitled-design-6.png" alt="Logo" class="topbar-logo-img">
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-stat">Homes Passed: <strong id="st-total">0</strong></div>
+    <div class="tb-stat sched">✅ Scheduled: <strong id="st-sched">0</strong></div>
+    <div class="tb-stat">Pending: <strong id="st-pend">0</strong></div>
+    <div class="tb-actions">
+      <button class="tb-btn sync-btn" id="offline-sync-btn" onclick="processOfflineQueue(true)" title="Sync queued field activity">Synced</button>
+      <button class="tb-btn btn-logout" onclick="openSignOutConfirm()" title="Sign out">Log Out</button>
+    </div>
+  </div>
+
+  <div id="fieldos-game-plan" class="game-plan-panel">
+    <div class="gp-head">
+      <div>
+        <div class="gp-eyebrow">Today's Game Plan</div>
+        <div class="gp-title" id="gp-title">Load addresses to build your plan</div>
+      </div>
+      <button class="gp-collapse" onclick="toggleGamePlan()" id="gp-collapse-btn">Hide</button>
+    </div>
+    <div id="gp-body" class="gp-body">
+      <div class="gp-card">
+        <div class="gp-card-title">Next Best Door</div>
+        <div id="next-best-door" class="gp-muted">Waiting for territory data…</div>
+      </div>
+      <div class="gp-card">
+        <div class="gp-card-title">Street / Route Completion</div>
+        <div id="street-completion" class="gp-muted">No street progress yet.</div>
+      </div>
+      <div class="gp-card">
+        <div class="gp-card-title">Today's Focus</div>
+        <div id="today-focus" class="gp-muted">Your best plan will appear after addresses load.</div>
+      </div>
+    </div>
+  </div>
+
+  <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle address list">&#8249;</button>
+
+  <div id="panel-list">
+    <div class="pl-head">
+      <div class="pl-title">Addresses <span class="pl-badge" id="addr-count">0</span></div>
+      <div class="pl-filter-row">
+        <input class="search-in" id="addr-search" type="text" placeholder="Search addresses" oninput="buildList(this.value)">
+        <div class="disp-chips">
+          <button class="disp-chip" id="btn-route-mode" type="button" onclick="toggleRouteMode()">Route</button>
+          <button class="disp-chip" id="btn-stale-mode" type="button" onclick="toggleStaleMode()">Follow-Ups <span id="stale-badge" class="pl-badge">0</span></button>
+        </div>
+      </div>
+      <div id="territory-tabs" class="territory-tabs"></div>
+    </div>
+
+    <div id="addr-items"></div>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="geocode-bar" class="hidden">
+    <div id="gc-text"></div>
+    <div class="gc-track">
+      <div id="gc-fill"></div>
+    </div>
+  </div>
+
+  <div id="panel-form">
+    <div class="pf-head">
+      <div class="pf-info">
+        <div class="pf-addr" id="pf-addr-line"></div>
+        <div class="pf-sub" id="pf-addr-sub"></div>
+      </div>
+      <button class="pf-collapse" id="pf-collapse-btn" onclick="toggleFormCollapse()" title="Collapse / expand form">▾</button>
+      <button class="pf-close" onclick="closeForm()">✕</button>
+    </div>
+    <div class="pf-body">
+
+      <div id="active-notice" class="hidden">
+        <div class="active-notice-box">
+          <div class="active-notice-icon">⚡</div>
+          <div class="active-notice-title">Active Customer</div>
+          <div class="active-notice-msg">This address is an existing active customer and cannot be sold to.</div>
+        </div>
+      </div>
+
+      <div id="sales-form-body">
+
+        <div id="prev-disposition" class="hidden">
+          <div class="prev-disp-label">Previous Disposition</div>
+          <div class="prev-disp-row">
+            <span class="prev-disp-status" id="prev-disp-status"></span>
+            <span class="prev-disp-clear" onclick="clearPrevDisposition()" title="Clear disposition">✕ Clear</span>
+          </div>
+          <div class="prev-disp-note hidden" id="prev-disp-note"></div>
+        </div>
+
+        <div class="sec-head">Customer Info</div>
+        <div class="fg-row">
+          <div><label class="fl">First Name</label><input class="fi" type="text" id="f-first" placeholder="Jane"></div>
+          <div><label class="fl">Last Name</label><input class="fi" type="text" id="f-last" placeholder="Smith"></div>
+        </div>
+        <div class="fg">
+          <label class="fl">Phone</label>
+          <input class="fi" type="text" id="f-phone" placeholder="(555) 555-5555" oninput="fmtPhone(this)">
+        </div>
+        <div class="fg">
+          <label class="fl">Email</label>
+          <input class="fi" type="text" id="f-email" placeholder="jane@example.com">
+        </div>
+        <div class="fg">
+          <label class="fl">Notes</label>
+          <input class="fi" type="text" id="f-notes" placeholder="Gate code, best call time, etc.">
+        </div>
+
+        <div class="sec-head">Select Package</div>
+        <div class="pkg-grid">
+          <div class="pkg-card mega-card" id="pkg-mega" onclick="pickPkg('mega')">
+            <span class="pkg-check">✓</span>
+            <div class="pkg-icon">⚡</div>
+            <div class="pkg-name">Mega Speed</div>
+            <div class="pkg-speed">Loading offer…</div>
+            <div class="pkg-price">Current promo</div>
+          </div>
+          <div class="pkg-card gig-card" id="pkg-gig" onclick="pickPkg('gig')">
+            <span class="pkg-check">✓</span>
+            <div class="pkg-icon">🚀</div>
+            <div class="pkg-name">Gig Speed</div>
+            <div class="pkg-speed">Loading offer…</div>
+            <div class="pkg-price">Current promo</div>
+          </div>
+        </div>
+
+        <div id="pricing-box" class="hidden">
+
+          <div class="sec-head">Schedule Install</div>
+
+          <div id="sched-wrap">
+            <div id="sched-loading" class="sched-msg hidden">
+              <div class="sched-spinner"></div><span>Loading schedule…</span>
+            </div>
+            <div id="sched-error" class="sched-err hidden"></div>
+
+            <div id="sched-picker" class="hidden">
+              <div class="sched-nav">
+                <button class="sched-nav-btn" onclick="schedShiftWeek(-1)">&#8592;</button>
+                <span class="sched-week-label" id="sched-week-label"></span>
+                <button class="sched-nav-btn" onclick="schedShiftWeek(1)">&#8594;</button>
+              </div>
+              <div id="sched-day-grid"></div>
+            </div>
+
+            <div id="sched-confirmed" class="sched-confirmed hidden">
+              <div class="sched-conf-check">✅</div>
+              <div class="sched-conf-body">
+                <div class="sched-conf-label">Install Scheduled</div>
+                <div class="sched-conf-date" id="sched-conf-date"></div>
+                <div class="sched-conf-time" id="sched-conf-time"></div>
+              </div>
+              <button class="sched-conf-change" onclick="schedClearSlot()">✕ Change</button>
+            </div>
+          </div>
+
+          <input type="hidden" id="f-install-date">
+          <input type="hidden" id="f-install-time">
+
+          <div class="sec-head">Pricing Breakdown</div>
+          <div class="price-table">
+            <div class="price-section-label" id="pr-offer-title">Selected Offer</div>
+            <div id="pr-phase-list"></div>
+            <div class="price-section-label">Monthly Bill (recurring)</div>
+            <div class="price-row"><span>Internet Service</span><span id="pr-internet">—</span></div>
+            <div class="price-row"><span id="pr-modem-label">Modem Fee</span><span id="pr-modem">$0.00</span></div>
+            <div class="price-row"><span id="pr-eero-label">eero WiFi Router</span><span id="pr-eero">$5.00</span></div>
+            <div class="price-row"><span id="pr-processing-label">Payment Processing Fee</span><span id="pr-processing">$1.00</span></div>
+            <div class="price-row price-total"><span>Monthly Total</span><span id="pr-monthly">—</span></div>
+
+            <div class="price-section-label mt-14">First Bill Estimate</div>
+            <div class="price-row promo-row"><span>Internet Service</span><span id="pr-first-internet" class="free-tag">Based on offer</span></div>
+            <div class="price-row"><span id="pr-first-modem-label">Modem Fee</span><span id="pr-first-modem">$0.00</span></div>
+            <div class="price-row"><span id="pr-first-eero-label">eero WiFi Router</span><span id="pr-first-eero">$5.00</span></div>
+            <div class="price-row"><span id="pr-first-processing-label">Payment Processing Fee</span><span id="pr-first-processing">$1.00</span></div>
+            <div class="price-row price-total"><span>Required Monthly Charges</span><span id="pr-firstbill-fees">$0.00</span></div>
+            <div class="price-row"><span class="opacity-85">+ Estimated Proration (below)</span><span class="opacity-85">—</span></div>
+            <div class="price-row price-total"><span>Estimated First Bill Total</span><span id="pr-firstbill-total">—</span></div>
+
+            <div id="proration-section" class="hidden">
+              <div class="price-section-label mt-14">Estimated Proration (install → 1st of next month)</div>
+              <div class="price-row"><span id="pr-prorate-label">Internet</span><span id="pr-prorate-internet">—</span></div>
+              <div class="price-row"><span id="pr-prorate-eero-label">eero 6+</span><span id="pr-prorate-eero">—</span></div>
+              <div class="price-row"><span>Payment Processing Fee</span><span>$1.00</span></div>
+              <div class="price-row price-total"><span>Estimated Proration Total</span><span id="pr-prorate-total">—</span></div>
+              <div class="price-note mt-10">
+                ✅ <strong>No payment is collected at install.</strong> Estimated proration is added to the first bill.
+              </div>
+            </div>
+
+            <div class="price-note">
+              📅 Bills are generated on the <strong>1st</strong> of each month and due by the <strong>10th</strong>.
+              <br><span id="pr-disclosure">Pricing is based on the approved offer for this territory. Final billing is subject to serviceability, approved promo, equipment selection, taxes, and account setup.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-head">Outcome Tracking</div>
+        <div class="outcome-flags">
+          <label class="yn-flag">
+            <input type="checkbox" id="f-decision-maker">
+            <span>Decision Maker Spoken To</span>
+          </label>
+          <label class="yn-flag">
+            <input type="checkbox" id="f-followup-needed">
+            <span>Follow Up Needed</span>
+          </label>
+        </div>
+        <div class="outcome-help">Sale Made is set automatically when a sale is submitted.</div>
+
+        <div class="sec-head">Submit Sale</div>
+        <button class="btn-mega" id="btn-mega" onclick="submitSale('Mega Speed')" disabled>⚡ Submit — Mega Speed</button>
+        <button class="btn-gig" id="btn-gig" onclick="submitSale('Gig Speed')" disabled>🚀 Submit — Gig Speed</button>
+
+        <div class="sec-head">No Sale</div>
+        <div class="status-grid" id="status-grid"></div>
+
+        <div class="fg hidden" id="ns-note-wrap">
+          <label class="fl" for="ns-note">Disposition Note</label>
+          <textarea class="fi" id="ns-note" rows="3" placeholder="Quick note (optional)"></textarea>
+        </div>
+
+        <button class="btn-log" onclick="submitStatus()">Log Status (no sale)</button>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="modal" onclick="handleModalClick(event)">
+  <div class="modal-box">
+    <h2>⚙ Google Sheets Setup Guide</h2>
+    <p>Follow these steps to send sale data automatically to a Google Sheet.</p>
+
+    <h3>1 — Create a Google Sheet</h3>
+    <p>Add these headers in Row 1 exactly as shown:</p>
+    <pre>Timestamp | Salesperson | Address | City | State | Zip | First Name | Last Name | Phone | Email | Package | Install Date | Install Time | Notes | Status</pre>
+
+    <h3>2 — Open Apps Script</h3>
+    <p>Go to <strong>Extensions → Apps Script</strong>, delete existing code, and paste this:</p>
+    <pre>function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var d = JSON.parse(e.postData.contents);
+  sheet.appendRow([
+    new Date(), d.salesperson,
+    d.address, d.city, d.state, d.zip,
+    d.firstName, d.lastName, d.phone, d.email,
+    d.package, d.installDate, d.installTime, d.notes, d.status
+  ]);
+  return ContentService
+    .createTextOutput(JSON.stringify({result:'success'}))
+    .setMimeType(ContentService.MimeType.JSON);
+}</pre>
+
+    <h3>3 — Deploy as Web App</h3>
+    <p>Click <strong>Deploy → New deployment → Web app</strong>. Set <em>Execute as</em>: <strong>Me</strong>, <em>Who has access</em>: <strong>Anyone</strong>. Deploy and authorize.</p>
+
+    <h3>4 — Address CSV Format</h3>
+    <pre>address,city,state,zip
+123 Main St,Burnsville,NC,28714
+456 Oak Ave,Burnsville,NC,28714</pre>
+
+    <button class="modal-close" onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<!-- Third-party libraries -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<!-- App client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- App config -->
+<script>
+  window.FIELDOS_SUPABASE_URL = 'https://zyioicczczmlsksxysqw.supabase.co';
+  window.FIELDOS_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5aW9pY2N6Y3ptbHNrc3h5c3F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzYyODMsImV4cCI6MjA5ODMxMjI4M30.Wfcn5_JA73k-Dq6YX0KpHZ3HLNsWa87v7TE3owDpOyM';
+</script>
+
+<!-- App logic -->
+<script defer src="app.js?v=fieldos-clean-login-20260707"></script>
+<!-- Service worker -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+</script>
+
+</body>
+</html>
