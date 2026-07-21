@@ -482,19 +482,20 @@
           <div class="panel-head">
             <div>
               <h2>Sales Review & Install Outcomes</h2>
-              <div class="panel-sub">A grouped review queue for entering sales, tracking install outcomes, and invoicing completed installs.</div>
+              <div class="panel-sub">Chronological active review queue for entering sales, tracking install outcomes, and invoicing completed installs.</div>
             </div>
             <div class="admin-actions">
               <select id="admin-sales-review-filter">
-                <option value="all">All sales</option>
-                <option value="needs_review">Needs review</option>
-                <option value="submitted">Submitted</option>
-                <option value="entered_in_zip">Entered in ZiP</option>
+                <option value="active_workflow">Active workflow — chronological</option>
+                <option value="submitted">Needs ZiP entry</option>
+                <option value="entered_in_zip">Entered — awaiting install outcome</option>
                 <option value="installed_ready">Installed — ready to invoice</option>
-                <option value="invoiced">Invoiced</option>
                 <option value="needs_rescheduled">Needs rescheduled</option>
+                <option value="needs_review">Flagged / needs review</option>
                 <option value="canceled">Canceled</option>
                 <option value="rejected">Rejected</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="all">All sales</option>
               </select>
               <button id="admin-invoice-installed-sales" class="primary">Invoice Installed Sales</button>
               <button id="admin-export-sales-review">Export Review Queue</button>
@@ -3868,22 +3869,95 @@
       });
     }
 
+    function salesReviewDateTimeValue(dateValue, timeValue, missingValue = Number.POSITIVE_INFINITY) {
+      const dateText = String(dateValue || '').trim();
+      if (!dateText) return missingValue;
+
+      const timeText = String(timeValue || '').trim();
+      const candidates = timeText
+        ? [dateText + ' ' + timeText, dateText + 'T' + timeText]
+        : [dateText];
+
+      for (const candidate of candidates) {
+        const parsed = new Date(candidate);
+        if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+      }
+
+      return missingValue;
+    }
+
+    function salesReviewCreatedValue(row, missingValue = Number.POSITIVE_INFINITY) {
+      return salesReviewDateTimeValue(firstNonEmpty(row.created_at, row.raw?.created_at, row.submitted_at, row.raw?.submitted_at), '', missingValue);
+    }
+
+    function salesReviewInstallValue(row, missingValue = Number.POSITIVE_INFINITY) {
+      return salesReviewDateTimeValue(firstNonEmpty(row.install_date, row.raw?.install_date, row.raw?.preferred_install_date, row.raw?.appointment_date), firstNonEmpty(row.install_time, row.raw?.install_time, row.raw?.install_slot, row.raw?.preferred_install_time, row.raw?.appointment_time), missingValue);
+    }
+
+    function salesReviewWorkflowRank(row) {
+      const reviewStatus = String(row.review_status || 'submitted').toLowerCase().trim();
+      const installOutcome = String(row.install_outcome || '').toLowerCase().trim();
+
+      if (row.invoice_id) return 90;
+      if (reviewStatus === 'rejected') return 85;
+      if (reviewStatus === 'canceled' || reviewStatus === 'cancelled' || installOutcome === 'canceled' || installOutcome === 'cancelled') return 80;
+      if (installOutcome === 'needs_rescheduled' || installOutcome === 'rescheduled' || reviewStatus === 'needs_rescheduled' || reviewStatus === 'rescheduled') return 40;
+      if (isInvoiceEligibleSale(row)) return 30;
+      if (reviewStatus === 'entered_in_zip' && !installOutcome) return 20;
+      if (!reviewStatus || reviewStatus === 'submitted' || reviewStatus === 'needs_review') return 10;
+      return 50;
+    }
+
+    function salesReviewChronologyValue(row) {
+      const rank = salesReviewWorkflowRank(row);
+
+      // Once a sale is entered in ZiP, the install appointment date is the most useful order.
+      if ([20, 30, 40, 80].includes(rank)) {
+        const installValue = salesReviewInstallValue(row);
+        if (Number.isFinite(installValue)) return installValue;
+      }
+
+      // Submitted/needs-review rows are worked oldest submitted first.
+      return salesReviewCreatedValue(row);
+    }
+
+    function compareSalesReviewChronological(a, b) {
+      const rankDiff = salesReviewWorkflowRank(a) - salesReviewWorkflowRank(b);
+      if (rankDiff !== 0) return rankDiff;
+
+      const timeDiff = salesReviewChronologyValue(a) - salesReviewChronologyValue(b);
+      if (Number.isFinite(timeDiff) && timeDiff !== 0) return timeDiff;
+
+      const createdDiff = salesReviewCreatedValue(a) - salesReviewCreatedValue(b);
+      if (Number.isFinite(createdDiff) && createdDiff !== 0) return createdDiff;
+
+      return String(a.customer_name || '').localeCompare(String(b.customer_name || ''));
+    }
+
     function filteredSalesReviewRecords() {
       const rows = buildSalesQueueRecords(state.sales_orders, state.address_events, buildAddressMap(), currentFilters());
-      const filter = els.adminSalesReviewFilter?.value || 'all';
+      const filter = els.adminSalesReviewFilter?.value || 'active_workflow';
       return rows.map(r => {
         const raw = state.sales_orders.find(s => idKey(s.id) === idKey(r.raw_id)) || state.sales_orders.find(s => String(s.created_at) === String(r.created_at) && (getRepName(s) === r.rep_name || buildAddressLabel(buildAddressMap(), s) === r.address)) || {};
         const merged = normalizeInvoiceSaleRow({ ...r, raw_id: r.raw_id || raw.id || '', review_status: r.review_status || saleReviewStatus(raw), review_note: r.review_note || raw.review_note || raw.admin_note || '', install_outcome: saleInstallOutcome(raw), invoice_id: saleInvoiceId(raw), raw });
         return merged;
       }).filter(r => {
+        const reviewStatus = String(r.review_status || 'submitted').toLowerCase().trim();
+        const installOutcome = String(r.install_outcome || '').toLowerCase().trim();
+
         if (filter === 'all') return true;
+        if (filter === 'active_workflow') {
+          return !r.invoice_id
+            && !['rejected','canceled','cancelled','invoiced'].includes(reviewStatus)
+            && !['canceled','cancelled'].includes(installOutcome);
+        }
         if (filter === 'needs_review') return !r.review_status || ['submitted','needs_review'].includes(r.review_status);
         if (filter === 'installed_ready') return isInvoiceEligibleSale(r);
         if (filter === 'invoiced') return !!r.invoice_id;
         if (filter === 'needs_rescheduled') return r.install_outcome === 'needs_rescheduled' || r.install_outcome === 'rescheduled';
         if (filter === 'canceled') return r.install_outcome === 'canceled' || r.install_outcome === 'cancelled' || r.review_status === 'canceled' || r.review_status === 'cancelled';
         return r.review_status === filter;
-      });
+      }).sort(compareSalesReviewChronological);
     }
 
 
@@ -4103,9 +4177,14 @@
       setText('admin-kpi-sales-review', formatNumber(needsReview));
       setText('admin-kpi-sales-snapshot', formatNumber(missingSnapshot));
       setText('admin-kpi-sales-contact', formatNumber(missingContact));
-      if (els.adminInvoiceStatus) els.adminInvoiceStatus.textContent = readyInvoice
-        ? readyInvoice + ' installed sale(s) are ready to invoice in the current filtered view.'
-        : 'No installed, uninvoiced sales are currently ready to invoice in this view.';
+      if (els.adminInvoiceStatus) {
+        const activeFilter = els.adminSalesReviewFilter?.value || 'active_workflow';
+        els.adminInvoiceStatus.textContent = readyInvoice
+          ? readyInvoice + ' installed sale(s) are ready to invoice. Review rows are sorted in workflow order and chronological order.'
+          : (activeFilter === 'active_workflow'
+            ? 'Showing the active review workflow in chronological order. Invoiced, canceled, and rejected sales are hidden unless selected in the filter.'
+            : 'No installed, uninvoiced sales are currently ready to invoice in this view.');
+      }
       if (!els.adminSalesReviewBody) return;
       els.adminSalesReviewBody.innerHTML = reviewRecords.length ? reviewRecords.map(r => {
         r = normalizeInvoiceSaleRow(r);
