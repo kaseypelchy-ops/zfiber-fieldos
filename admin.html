@@ -323,7 +323,7 @@
         <div class="panel"><div class="kpi-label">Doors Worked</div><div id="kpi-worked" class="kpi-value">0</div><div class="kpi-sub">Latest addressed activity</div></div>
         <div class="panel"><div class="kpi-label">Sales</div><div id="kpi-sales" class="kpi-value">0</div><div class="kpi-sub">Latest status mega/gig</div></div>
         <div class="panel"><div class="kpi-label">Close Rate</div><div id="kpi-close" class="kpi-value">0.0%</div><div class="kpi-sub">Sales / worked</div></div>
-        <div class="panel"><div class="kpi-label">Booked Installs</div><div id="kpi-booked" class="kpi-value">0</div><div class="kpi-sub">Sales with install dates or booking records</div></div>
+        <div class="panel"><div class="kpi-label">Booked Installs</div><div id="kpi-booked" class="kpi-value">0</div><div class="kpi-sub">Today forward — sales with install dates or bookings</div></div>
       </div>
 
       <div class="grid-2">
@@ -2288,17 +2288,35 @@
       document.getElementById('kpi-worked').textContent = formatNumber(worked);
       document.getElementById('kpi-sales').textContent = formatNumber(salesCount);
       document.getElementById('kpi-close').textContent = formatPercent(worked ? salesCount / worked : 0);
-      const bookedSalesInstalls = filteredSales.filter(s => {
+      const todayDate = new Date();
+      const todayIso = [
+        todayDate.getFullYear(),
+        String(todayDate.getMonth() + 1).padStart(2, '0'),
+        String(todayDate.getDate()).padStart(2, '0')
+      ].join('-');
+
+      const futureBookedSalesInstalls = filteredSales.filter(s => {
         const reviewStatus = String(s.review_status || 'submitted').toLowerCase().trim();
         const outcome = String(s.install_outcome || '').toLowerCase().trim();
         const installDate = getSaleInstallDate(s);
         return installDate
-          && dateInFilterWindow(installDate, filters)
+          && installDate >= todayIso
           && !['canceled','cancelled','rejected','void','voided'].includes(reviewStatus)
           && !['canceled','cancelled','void','voided'].includes(outcome);
       });
-      const bookedInstallTotal = Math.max(filteredBookings.length, bookedSalesInstalls.length);
-      document.getElementById('kpi-booked').textContent = formatNumber(bookedInstallTotal);
+
+      const futureBookedScheduleRecords = filteredBookings.filter(b => {
+        const linkedSlot = slotMap.get(idKey(b.schedule_slot_id)) || slotMap.get(idKey(b.slot_id)) || b.slot || {};
+        const bookingDate = getBookingDate(b, linkedSlot);
+        return bookingDate && bookingDate >= todayIso;
+      });
+
+      const bookedInstallTotal = Math.max(futureBookedScheduleRecords.length, futureBookedSalesInstalls.length);
+      const bookedEl = document.getElementById('kpi-booked');
+      if (bookedEl) {
+        bookedEl.textContent = formatNumber(bookedInstallTotal);
+        bookedEl.title = 'Booked installs from ' + todayIso + ' forward. This respects Team, Territory, and Rep filters, but ignores the dashboard date range so it rolls forward each day.';
+      }
 
       const salesByTerritory = {};
       salesQueueRecords.forEach(row => {
