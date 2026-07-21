@@ -919,6 +919,51 @@ var COLORS = {
 };
 var COLOR_ACTIVE = '#facc15';
 
+
+// Normalize status values before map coloring/filtering.
+// Supabase rows should usually store clean keys like "nothome" or "gig",
+// but imports/legacy rows can contain labels like "Sale — Gig Speed",
+// "Not Home x1", "Homes Passed", or other spaced/capitalized variants.
+function normalizeDispositionStatus(value) {
+  var raw = String(value || '').toLowerCase().trim();
+  if (!raw) return 'pending';
+
+  raw = raw
+    .replace(/[–—]/g, '-')
+    .replace(/&/g, ' and ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  var compact = raw.replace(/[^a-z0-9]+/g, '');
+
+  if (compact === 'homespassed' || compact === 'homepassed') return 'homes passed';
+  if (compact === 'pending' || compact === 'untouched') return 'pending';
+
+  if (compact.indexOf('salegig') >= 0 || compact.indexOf('gigspeed') >= 0 || compact === 'gig') return 'gig';
+  if (compact.indexOf('salemega') >= 0 || compact.indexOf('megaspeed') >= 0 || compact === 'mega') return 'mega';
+
+  if (compact === 'nothome' || compact === 'nothomex1' || compact === 'nohome') return 'nothome';
+  if (compact === 'nothome2' || compact === 'nothomex2') return 'nothome2';
+  if (compact === 'nothome3' || compact === 'nothomex3') return 'nothome3';
+  if (compact === 'nothome4' || compact === 'nothomex4') return 'nothome4';
+
+  if (compact === 'goback' || compact === 'gobacklater' || compact === 'callback') return 'goback';
+  if (compact === 'maybelater') return 'maybelater';
+  if (compact === 'sendinfo' || compact === 'sendinformation') return 'sendinfo';
+  if (compact === 'talktospouse' || compact === 'needtotalktospouse') return 'talktospouse';
+  if (compact === 'priceconcern' || compact === 'priceobjection') return 'priceconcern';
+  if (compact === 'notdecisionmaker') return 'notdecisionmaker';
+  if (compact === 'notinterested') return 'notinterested';
+  if (compact === 'fibercompetitor') return 'fibercompetitor';
+  if (compact === 'incontract') return 'incontract';
+  if (compact === 'activecustomer' || compact === 'existingcustomer' || compact === 'customer') return 'activecustomer';
+  if (compact === 'vacant') return 'vacant';
+  if (compact === 'business') return 'business';
+  if (compact === 'competitor') return 'competitor';
+
+  return raw;
+}
+
 // ── Knockable door classification ─────────────────────────
 // An address is "knockable" if it is NOT an existing Zito customer.
 // Existing customers arrive from the sheet with activeCount = 'active',
@@ -2010,22 +2055,17 @@ function initMap() {
   });
 }
 function getMarkerColor(addr) {
-  var s = (addr.status || '').toLowerCase().trim();
+  var s = normalizeDispositionStatus(addr && addr.status);
 
-  if (s === 'gig') return '#22c55e';          // green
-  if (s === 'mega') return '#8b5cf6';         // purple
-  if (s === 'activecustomer') return '#06b6d4';
-  if (s === 'homes passed' || s === 'pending') return '#f97316';   // orange
+  // Use one color per disposition instead of turning every worked door red.
+  if (COLORS[s]) return COLORS[s];
+  if (s === 'homes passed') return '#f97316'; // open/workable home
 
-  if (
-    s === 'nothome' || s === 'nothome2' || s === 'nothome3' || s === 'nothome4' ||
-    s === 'goback' || s === 'maybelater' || s === 'sendinfo' || s === 'talktospouse' ||
-    s === 'priceconcern' || s === 'notdecisionmaker' || s === 'notinterested' ||
-    s === 'vacant' || s === 'business' || s === 'competitor' ||
-    s === 'fibercompetitor' || s === 'incontract'
-  ) return '#ef4444';
+  // Fallback to customer/account truth only if status is blank/unknown.
+  var cs = String((addr && (addr.customerStatus || addr.activeCount)) || '').toLowerCase().trim();
+  if (cs === 'active' || cs === 'existing' || cs === 'customer') return COLORS.activecustomer;
 
-  return '#f97316';
+  return COLORS.pending;
 }
 function markerHTML(color, shape) {
   if (shape === 'house') {
@@ -2038,7 +2078,7 @@ function markerHTML(color, shape) {
 }
 
 function getMarkerShape(addr) {
-  var s  = (addr.status || '').toLowerCase().trim();
+  var s  = normalizeDispositionStatus(addr && addr.status);
   var cs = (addr.customerStatus || addr.activeCount || '').toLowerCase().trim();
 
   // Sold homes
@@ -2079,7 +2119,7 @@ function placeMarker(addr) {
 // 3) homes passed
 // 4) active customers
 if (activeDispoFilter) {
-  var fs = (addr.status || '').toLowerCase().trim();
+  var fs = normalizeDispositionStatus(addr && addr.status);
   var shape = getMarkerShape(addr);
 
   var isPending = fs === 'pending';
@@ -2565,7 +2605,7 @@ function filterByDisposition(val) {
 // ──────────────────────────────────────────────────────────
 //  REP ASSISTANT — Today’s Game Plan, Next Best Door, Street Completion
 // ──────────────────────────────────────────────────────────
-function statusKey(a) { return String((a && a.status) || '').toLowerCase().trim(); }
+function statusKey(a) { return normalizeDispositionStatus(a && a.status); }
 function isPendingLikeStatus(s) { return !s || s === 'pending' || s === 'homes passed' || s === 'homespassed'; }
 function isSaleStatus(s) { return s === 'mega' || s === 'gig'; }
 function isNoContactStatus(s) { return s === 'nothome' || s === 'nothome2' || s === 'nothome3' || s === 'nothome4'; }
@@ -4108,7 +4148,7 @@ function refreshMapMarkers() {
     if (!a || a.lat == null || a.lng == null) return;
 
     if (activeDispoFilter) {
-  var s = (a.status || '').toLowerCase().trim();
+  var s = normalizeDispositionStatus(a && a.status);
   var shape = getMarkerShape(a);
 
   var isPending = s === 'pending';
@@ -4334,6 +4374,11 @@ var STATUS_LABELS = {
   incontract:    'In Contract',
   notinterested: 'Not Interested',
   goback:        'Go Back Later',
+  maybelater:    'Maybe Later',
+  sendinfo:      'Send Information',
+  talktospouse:  'Need to Talk to Spouse',
+  priceconcern:  'Price Concern',
+  notdecisionmaker: 'Not Decision Maker',
   vacant:        'Vacant',
   business:      'Business',
   pending:       'Pending / Untouched',
