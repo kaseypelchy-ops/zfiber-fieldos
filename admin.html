@@ -323,7 +323,7 @@
         <div class="panel"><div class="kpi-label">Doors Worked</div><div id="kpi-worked" class="kpi-value">0</div><div class="kpi-sub">Latest addressed activity</div></div>
         <div class="panel"><div class="kpi-label">Sales</div><div id="kpi-sales" class="kpi-value">0</div><div class="kpi-sub">Latest status mega/gig</div></div>
         <div class="panel"><div class="kpi-label">Close Rate</div><div id="kpi-close" class="kpi-value">0.0%</div><div class="kpi-sub">Sales / worked</div></div>
-        <div class="panel"><div class="kpi-label">Booked Installs</div><div id="kpi-booked" class="kpi-value">0</div><div class="kpi-sub">Filtered booking count</div></div>
+        <div class="panel"><div class="kpi-label">Booked Installs</div><div id="kpi-booked" class="kpi-value">0</div><div class="kpi-sub">Sales with install dates or booking records</div></div>
       </div>
 
       <div class="grid-2">
@@ -2288,7 +2288,17 @@
       document.getElementById('kpi-worked').textContent = formatNumber(worked);
       document.getElementById('kpi-sales').textContent = formatNumber(salesCount);
       document.getElementById('kpi-close').textContent = formatPercent(worked ? salesCount / worked : 0);
-      document.getElementById('kpi-booked').textContent = formatNumber(filteredBookings.length);
+      const bookedSalesInstalls = filteredSales.filter(s => {
+        const reviewStatus = String(s.review_status || 'submitted').toLowerCase().trim();
+        const outcome = String(s.install_outcome || '').toLowerCase().trim();
+        const installDate = getSaleInstallDate(s);
+        return installDate
+          && dateInFilterWindow(installDate, filters)
+          && !['canceled','cancelled','rejected','void','voided'].includes(reviewStatus)
+          && !['canceled','cancelled','void','voided'].includes(outcome);
+      });
+      const bookedInstallTotal = Math.max(filteredBookings.length, bookedSalesInstalls.length);
+      document.getElementById('kpi-booked').textContent = formatNumber(bookedInstallTotal);
 
       const salesByTerritory = {};
       salesQueueRecords.forEach(row => {
