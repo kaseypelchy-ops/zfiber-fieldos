@@ -26,8 +26,8 @@
   </div></div>
   <script>
     /* Replace these with your NEW Supabase project URL and anon public key. Do not use the service role key. */
-    const SUPABASE_URL = 'PASTE_YOUR_NEW_SUPABASE_PROJECT_URL_HERE';
-    const SUPABASE_ANON_KEY = 'PASTE_YOUR_NEW_SUPABASE_ANON_KEY_HERE';
+    const SUPABASE_URL = 'https://zyioicczczmlsksxysqw.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5aW9pY2N6Y3ptbHNrc3h5c3F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzYyODMsImV4cCI6MjA5ODMxMjI4M30.Wfcn5_JA73k-Dq6YX0KpHZ3HLNsWa87v7TE3owDpOyM';
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const els={authScreen:document.getElementById('auth-screen'),dashboardShell:document.getElementById('dashboard-shell'),loginEmail:document.getElementById('login-email'),loginPassword:document.getElementById('login-password'),loginBtn:document.getElementById('login-btn'),authStatus:document.getElementById('auth-status'),sessionEmail:document.getElementById('session-email'),scopePill:document.getElementById('scope-pill'),logoutBtn:document.getElementById('logout-btn'),teamFilter:document.getElementById('team-filter'),startDate:document.getElementById('start-date'),endDate:document.getElementById('end-date'),refreshBtn:document.getElementById('refresh-btn'),refreshSummariesBtn:document.getElementById('refresh-summaries-btn'),exportSummaryBtn:document.getElementById('export-summary-btn'),exportTerritoriesBtn:document.getElementById('export-territories-btn'),statusLine:document.getElementById('status-line'),recommendations:document.getElementById('recommendations'),territoryBody:document.getElementById('territory-body'),repBody:document.getElementById('rep-body'),riskBody:document.getElementById('risk-body')};
     let latestSummary=null,trendChart=null,teamChart=null,capacityChart=null;
