@@ -482,26 +482,26 @@
           <div class="panel-head">
             <div>
               <h2>Sales Review & Install Outcomes</h2>
-              <div class="panel-sub">Chronological active review queue for entering sales, tracking install outcomes, and invoicing completed installs.</div>
+              <div class="panel-sub">A grouped review queue sorted by newest install date/time first so you can work straight down the list.</div>
             </div>
             <div class="admin-actions">
               <select id="admin-sales-review-filter">
-                <option value="active_workflow">Active workflow — chronological</option>
-                <option value="submitted">Needs ZiP entry</option>
-                <option value="entered_in_zip">Entered — awaiting install outcome</option>
+                <option value="install_workflow" selected>Active review — newest install first</option>
                 <option value="installed_ready">Installed — ready to invoice</option>
+                <option value="entered_in_zip">Entered in ZiP / awaiting outcome</option>
+                <option value="submitted">Submitted</option>
+                <option value="needs_review">Needs review</option>
                 <option value="needs_rescheduled">Needs rescheduled</option>
-                <option value="needs_review">Flagged / needs review</option>
+                <option value="all">All sales — newest install first</option>
+                <option value="invoiced">Invoiced</option>
                 <option value="canceled">Canceled</option>
                 <option value="rejected">Rejected</option>
-                <option value="invoiced">Invoiced</option>
-                <option value="all">All sales</option>
               </select>
               <button id="admin-invoice-installed-sales" class="primary">Invoice Installed Sales</button>
               <button id="admin-export-sales-review">Export Review Queue</button>
             </div>
           </div>
-          <div id="admin-invoice-status" class="status-line">Installed sales receive invoice IDs like Zito-1, Zito-2, etc. after export.</div>
+          <div id="admin-invoice-status" class="status-line">Installed sales receive invoice IDs like Zito-1, Zito-2, etc. after export. The review list is sorted by newest install date/time first.</div>
           <div id="sales-review-batch-bar" class="review-batch-bar">
             <div>
               <div class="review-batch-title"><span id="sales-review-pending-count">0</span> pending review update(s)</div>
@@ -3869,97 +3869,105 @@
       });
     }
 
-    function salesReviewDateTimeValue(dateValue, timeValue, missingValue = Number.POSITIVE_INFINITY) {
-      const dateText = String(dateValue || '').trim();
-      if (!dateText) return missingValue;
+    function salesReviewInstallDateValue(row) {
+      const raw = row?.raw || {};
+      const value = firstNonEmpty(row?.install_date, raw.install_date, raw.preferred_install_date, raw.appointment_date, raw.slot_date);
+      const str = String(value || '').trim();
+      if (!str) return '';
+      if (/^\d{4}-\d{1,2}-\d{1,2}/.test(str)) return str.slice(0, 10);
+      const parsed = new Date(str);
+      return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : str;
+    }
 
-      const timeText = String(timeValue || '').trim();
-      const candidates = timeText
-        ? [dateText + ' ' + timeText, dateText + 'T' + timeText]
-        : [dateText];
+    function salesReviewInstallTimeValue(row) {
+      const raw = row?.raw || {};
+      return String(firstNonEmpty(row?.install_time, raw.install_time, raw.install_slot, raw.preferred_install_time, raw.appointment_time, raw.time_label)).trim();
+    }
 
-      for (const candidate of candidates) {
-        const parsed = new Date(candidate);
-        if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+    function salesReviewDateMs(dateValue) {
+      const str = String(dateValue || '').trim();
+      if (!str) return 0;
+      const iso = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
+      const us = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (us) {
+        let year = Number(us[3]);
+        if (year < 100) year += 2000;
+        return new Date(year, Number(us[1]) - 1, Number(us[2])).getTime();
       }
-
-      return missingValue;
+      const parsed = new Date(str).getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
     }
 
-    function salesReviewCreatedValue(row, missingValue = Number.POSITIVE_INFINITY) {
-      return salesReviewDateTimeValue(firstNonEmpty(row.created_at, row.raw?.created_at, row.submitted_at, row.raw?.submitted_at), '', missingValue);
+    function salesReviewTimeMinutes(timeValueRaw) {
+      const str = String(timeValueRaw || '').trim().toLowerCase();
+      if (!str) return -1;
+      const match = str.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+      if (!match) return -1;
+      let hour = Number(match[1]);
+      const minute = Number(match[2] || 0);
+      const meridiem = String(match[3] || '').toLowerCase();
+      if (meridiem === 'pm' && hour < 12) hour += 12;
+      if (meridiem === 'am' && hour === 12) hour = 0;
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return -1;
+      return (hour * 60) + minute;
     }
 
-    function salesReviewInstallValue(row, missingValue = Number.POSITIVE_INFINITY) {
-      return salesReviewDateTimeValue(firstNonEmpty(row.install_date, row.raw?.install_date, row.raw?.preferred_install_date, row.raw?.appointment_date), firstNonEmpty(row.install_time, row.raw?.install_time, row.raw?.install_slot, row.raw?.preferred_install_time, row.raw?.appointment_time), missingValue);
+    function salesReviewInstallSortValue(row) {
+      const dateMs = salesReviewDateMs(salesReviewInstallDateValue(row));
+      if (!dateMs) return 0;
+      const minutes = salesReviewTimeMinutes(salesReviewInstallTimeValue(row));
+      return dateMs + (Math.max(minutes, -1) * 60000);
     }
 
-    function salesReviewWorkflowRank(row) {
-      const reviewStatus = String(row.review_status || 'submitted').toLowerCase().trim();
-      const installOutcome = String(row.install_outcome || '').toLowerCase().trim();
-
-      if (row.invoice_id) return 90;
-      if (reviewStatus === 'rejected') return 85;
-      if (reviewStatus === 'canceled' || reviewStatus === 'cancelled' || installOutcome === 'canceled' || installOutcome === 'cancelled') return 80;
-      if (installOutcome === 'needs_rescheduled' || installOutcome === 'rescheduled' || reviewStatus === 'needs_rescheduled' || reviewStatus === 'rescheduled') return 40;
-      if (isInvoiceEligibleSale(row)) return 30;
-      if (reviewStatus === 'entered_in_zip' && !installOutcome) return 20;
-      if (!reviewStatus || reviewStatus === 'submitted' || reviewStatus === 'needs_review') return 10;
-      return 50;
+    function salesReviewSubmittedSortValue(row) {
+      const raw = row?.raw || {};
+      return timeValue(firstNonEmpty(row?.created_at, raw.created_at, raw.submitted_at, raw.updated_at));
     }
 
-    function salesReviewChronologyValue(row) {
-      const rank = salesReviewWorkflowRank(row);
-
-      // Once a sale is entered in ZiP, the install appointment date is the most useful order.
-      if ([20, 30, 40, 80].includes(rank)) {
-        const installValue = salesReviewInstallValue(row);
-        if (Number.isFinite(installValue)) return installValue;
-      }
-
-      // Submitted/needs-review rows are worked oldest submitted first.
-      return salesReviewCreatedValue(row);
+    function salesReviewIsClosedOrIrrelevant(row) {
+      const review = String(row?.review_status || '').toLowerCase().trim();
+      const outcome = String(row?.install_outcome || '').toLowerCase().trim();
+      if (row?.invoice_id) return true;
+      if (['invoiced', 'rejected', 'canceled', 'cancelled'].includes(review)) return true;
+      if (['canceled', 'cancelled'].includes(outcome)) return true;
+      return false;
     }
 
-    function compareSalesReviewChronological(a, b) {
-      const rankDiff = salesReviewWorkflowRank(a) - salesReviewWorkflowRank(b);
-      if (rankDiff !== 0) return rankDiff;
-
-      const timeDiff = salesReviewChronologyValue(a) - salesReviewChronologyValue(b);
-      if (Number.isFinite(timeDiff) && timeDiff !== 0) return timeDiff;
-
-      const createdDiff = salesReviewCreatedValue(a) - salesReviewCreatedValue(b);
-      if (Number.isFinite(createdDiff) && createdDiff !== 0) return createdDiff;
-
-      return String(a.customer_name || '').localeCompare(String(b.customer_name || ''));
+    function salesReviewNewestInstallFirst(a, b) {
+      const aInstall = salesReviewInstallSortValue(a);
+      const bInstall = salesReviewInstallSortValue(b);
+      const aHasInstall = aInstall > 0;
+      const bHasInstall = bInstall > 0;
+      if (aHasInstall !== bHasInstall) return aHasInstall ? -1 : 1;
+      if (aInstall !== bInstall) return bInstall - aInstall;
+      const aSubmitted = salesReviewSubmittedSortValue(a);
+      const bSubmitted = salesReviewSubmittedSortValue(b);
+      if (aSubmitted !== bSubmitted) return bSubmitted - aSubmitted;
+      return String(b?.raw_id || b?.raw?.id || '').localeCompare(String(a?.raw_id || a?.raw?.id || ''));
     }
 
     function filteredSalesReviewRecords() {
-      const rows = buildSalesQueueRecords(state.sales_orders, state.address_events, buildAddressMap(), currentFilters());
-      const filter = els.adminSalesReviewFilter?.value || 'active_workflow';
+      const addressMap = buildAddressMap();
+      const rows = buildSalesQueueRecords(state.sales_orders, state.address_events, addressMap, currentFilters());
+      const filter = els.adminSalesReviewFilter?.value || 'install_workflow';
       return rows.map(r => {
-        const raw = state.sales_orders.find(s => idKey(s.id) === idKey(r.raw_id)) || state.sales_orders.find(s => String(s.created_at) === String(r.created_at) && (getRepName(s) === r.rep_name || buildAddressLabel(buildAddressMap(), s) === r.address)) || {};
+        const raw = state.sales_orders.find(s => idKey(s.id) === idKey(r.raw_id)) || state.sales_orders.find(s => String(s.created_at) === String(r.created_at) && (getRepName(s) === r.rep_name || buildAddressLabel(addressMap, s) === r.address)) || {};
         const merged = normalizeInvoiceSaleRow({ ...r, raw_id: r.raw_id || raw.id || '', review_status: r.review_status || saleReviewStatus(raw), review_note: r.review_note || raw.review_note || raw.admin_note || '', install_outcome: saleInstallOutcome(raw), invoice_id: saleInvoiceId(raw), raw });
+        if (!merged.install_date) merged.install_date = salesReviewInstallDateValue(merged);
+        if (!merged.install_time) merged.install_time = salesReviewInstallTimeValue(merged);
         return merged;
       }).filter(r => {
-        const reviewStatus = String(r.review_status || 'submitted').toLowerCase().trim();
-        const installOutcome = String(r.install_outcome || '').toLowerCase().trim();
-
+        if (filter === 'install_workflow') return !salesReviewIsClosedOrIrrelevant(r);
         if (filter === 'all') return true;
-        if (filter === 'active_workflow') {
-          return !r.invoice_id
-            && !['rejected','canceled','cancelled','invoiced'].includes(reviewStatus)
-            && !['canceled','cancelled'].includes(installOutcome);
-        }
         if (filter === 'needs_review') return !r.review_status || ['submitted','needs_review'].includes(r.review_status);
         if (filter === 'installed_ready') return isInvoiceEligibleSale(r);
-        if (filter === 'invoiced') return !!r.invoice_id;
+        if (filter === 'invoiced') return !!r.invoice_id || r.review_status === 'invoiced';
         if (filter === 'needs_rescheduled') return r.install_outcome === 'needs_rescheduled' || r.install_outcome === 'rescheduled';
         if (filter === 'canceled') return r.install_outcome === 'canceled' || r.install_outcome === 'cancelled' || r.review_status === 'canceled' || r.review_status === 'cancelled';
         return r.review_status === filter;
-      }).sort(compareSalesReviewChronological);
+      }).sort(salesReviewNewestInstallFirst);
     }
-
 
     function getPendingSalesReviewUpdate(id) {
       const key = idKey(id);
@@ -4177,14 +4185,9 @@
       setText('admin-kpi-sales-review', formatNumber(needsReview));
       setText('admin-kpi-sales-snapshot', formatNumber(missingSnapshot));
       setText('admin-kpi-sales-contact', formatNumber(missingContact));
-      if (els.adminInvoiceStatus) {
-        const activeFilter = els.adminSalesReviewFilter?.value || 'active_workflow';
-        els.adminInvoiceStatus.textContent = readyInvoice
-          ? readyInvoice + ' installed sale(s) are ready to invoice. Review rows are sorted in workflow order and chronological order.'
-          : (activeFilter === 'active_workflow'
-            ? 'Showing the active review workflow in chronological order. Invoiced, canceled, and rejected sales are hidden unless selected in the filter.'
-            : 'No installed, uninvoiced sales are currently ready to invoice in this view.');
-      }
+      if (els.adminInvoiceStatus) els.adminInvoiceStatus.textContent = readyInvoice
+        ? readyInvoice + ' installed sale(s) are ready to invoice in the current filtered view.'
+        : 'No installed, uninvoiced sales are currently ready to invoice in this view.';
       if (!els.adminSalesReviewBody) return;
       els.adminSalesReviewBody.innerHTML = reviewRecords.length ? reviewRecords.map(r => {
         r = normalizeInvoiceSaleRow(r);
