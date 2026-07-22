@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FieldOS Sales Review & Invoicing</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #0f172a;
+      --panel2: #111827;
+      --border: #1e293b;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --credit: #38bdf8;
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); padding: 22px; }
+    .wrap { max-width: 1500px; margin: 0 auto; }
+    h1, h2, h3, p { margin: 0; }
+    .hidden { display: none !important; }
+    .top { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+    .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .2em; font-size: 12px; margin-bottom: 8px; }
+    .sub { color: var(--muted); margin-top: 7px; line-height: 1.45; }
+    .panel { background: linear-gradient(180deg, rgba(15,23,42,.96), rgba(17,24,39,.96)); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .auth-shell { min-height: calc(100vh - 44px); display: flex; align-items: center; justify-content: center; }
+    .auth-card { width: min(460px, 100%); background: linear-gradient(180deg, rgba(15,23,42,.96), rgba(17,24,39,.96)); border: 1px solid var(--border); border-radius: 24px; padding: 24px; }
+    .auth-grid { display: grid; gap: 12px; margin-top: 16px; }
+    input, select, button, textarea { width: 100%; background: #020617; color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+    button { cursor: pointer; font-weight: 800; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .primary { background: var(--accent) !important; color: #082f49 !important; border: none !important; }
+    .good { background: rgba(34,197,94,.14) !important; color: #bbf7d0 !important; border-color: rgba(34,197,94,.32) !important; }
+    .warn { background: rgba(245,158,11,.14) !important; color: #fde68a !important; border-color: rgba(245,158,11,.32) !important; }
+    .bad { background: rgba(239,68,68,.14) !important; color: #fecaca !important; border-color: rgba(239,68,68,.32) !important; }
+    .credit { background: rgba(14,165,233,.14) !important; color: #bae6fd !important; border-color: rgba(14,165,233,.32) !important; }
+    .ghost { background: #020617 !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 12px; background: rgba(2,6,23,.7); white-space: nowrap; }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .top-actions a { color: var(--text); text-decoration: none; }
+    .filters { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1fr 1fr 1fr auto; gap: 10px; margin-bottom: 14px; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
+    .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar-actions button { width: auto; }
+    .grid-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .kpi { min-width: 0; overflow: hidden; }
+    .kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; overflow-wrap: anywhere; }
+    .kpi-value { font-size: clamp(22px, 3vw, 32px); font-weight: 800; margin-top: 8px; line-height: 1.05; }
+    .kpi-sub { color: var(--muted); font-size: 12px; margin-top: 7px; line-height: 1.35; overflow-wrap: anywhere; }
+    .status-line { color: var(--muted); font-size: 13px; line-height: 1.45; margin-top: 9px; }
+    .error { color: #fda4af; }
+    .ok { color: #bbf7d0; }
+    .table-wrap { overflow: auto; max-height: calc(100vh - 380px); border-radius: 16px; border: 1px solid rgba(148,163,184,.13); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1180px; }
+    th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid rgba(148,163,184,.11); vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; position: sticky; top: 0; z-index: 5; background: #0f172a; }
+    tr:hover td { background: rgba(30,41,59,.25); }
+    .cell-title { font-weight: 800; line-height: 1.35; margin-bottom: 5px; color: #f8fafc; overflow-wrap: anywhere; }
+    .cell-sub { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 3px; overflow-wrap: anywhere; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; border: 1px solid rgba(148,163,184,.24); background: rgba(148,163,184,.10); color: #cbd5e1; white-space: nowrap; }
+    .badge.submitted { color: #cbd5e1; background: rgba(148,163,184,.10); border-color: rgba(148,163,184,.24); }
+    .badge.entered { color: #a5f3fc; background: rgba(34,211,238,.12); border-color: rgba(34,211,238,.30); }
+    .badge.installed { color: #bbf7d0; background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.30); }
+    .badge.invoiced { color: #ddd6fe; background: rgba(139,92,246,.14); border-color: rgba(139,92,246,.32); }
+    .badge.credit { color: #bae6fd; background: rgba(14,165,233,.14); border-color: rgba(14,165,233,.32); }
+    .badge.canceled { color: #fecaca; background: rgba(239,68,68,.13); border-color: rgba(239,68,68,.32); }
+    .badge.rescheduled { color: #fde68a; background: rgba(245,158,11,.13); border-color: rgba(245,158,11,.32); }
+    .row-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-width: 230px; }
+    .row-actions button { padding: 8px 9px; font-size: 12px; min-height: 34px; white-space: normal; line-height: 1.2; }
+    .row-actions .full { grid-column: 1 / -1; }
+    .notice { border-radius: 15px; padding: 12px 14px; border: 1px solid rgba(34,211,238,.26); background: rgba(34,211,238,.10); color: #bae6fd; line-height: 1.45; margin-bottom: 14px; }
+    .notice.warn { border-color: rgba(245,158,11,.32); background: rgba(245,158,11,.12); color: #fde68a; }
+    @media (max-width: 1200px) { .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); } .grid-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 700px) { body { padding: 12px; } .filters, .grid-kpis { grid-template-columns: 1fr; } .toolbar-actions button { width: 100%; } }
+  </style>
+</head>
+<body>
+  <div id="auth-screen" class="auth-shell">
+    <div class="auth-card">
+      <div class="eyebrow">Zito FieldOS</div>
+      <h2>Sales Review & Invoicing</h2>
+      <p class="sub">Sign in with your dashboard email and password. This page loads only the sales review and invoicing data.</p>
+      <div class="auth-grid">
+        <input id="login-email" type="email" placeholder="Email" autocomplete="username" />
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="login-btn" class="primary">Sign In</button>
+      </div>
+      <div id="auth-status" class="status-line">Waiting for sign in.</div>
+    </div>
+  </div>
+
+  <div id="app-shell" class="hidden">
+    <div class="wrap">
+      <div class="top">
+        <div>
+          <div class="eyebrow">Zito FieldOS</div>
+          <h1>Sales Review & Invoicing</h1>
+          <p class="sub">Fast workflow page for ZIP entry, install outcomes, invoice export, and clawback credits.</p>
+        </div>
+        <div class="top-actions">
+          <a class="pill" href="admin.html">Open Full Admin Dashboard</a>
+          <div id="session-email" class="pill">Not signed in</div>
+          <button id="logout-btn" class="ghost" style="width:auto;">Log Out</button>
+        </div>
+      </div>
+
+      <div class="notice">This page syncs with the rest of FieldOS because it reads and updates the same <strong>sales_orders</strong> and <strong>sales_order_clawbacks</strong> records. It avoids the heavy address, map, event, route, pricing, and reporting loads from the full admin dashboard.</div>
+
+      <div class="panel filters">
+        <select id="team-filter">
+          <option value="all">All Teams</option>
+          <option value="fiber">Fiber Sales Team</option>
+          <option value="sfi">Sales Focus Inc.</option>
+          <option value="lynxx">Lynxx</option>
+        </select>
+        <select id="territory-filter"><option value="all">All Territories</option></select>
+        <select id="status-filter">
+          <option value="active" selected>Active Review</option>
+          <option value="submitted">Submitted</option>
+          <option value="entered_in_zip">Entered into ZIP</option>
+          <option value="installed_ready">Installed — Ready to Invoice</option>
+          <option value="invoiced">Invoiced</option>
+          <option value="clawback_eligible">Clawback Eligible</option>
+          <option value="clawback_pending">Pending Clawback Credits</option>
+          <option value="clawbacks_all">All Clawbacks</option>
+          <option value="needs_rescheduled">Needs Rescheduled</option>
+          <option value="canceled">Canceled</option>
+          <option value="all">All Sales</option>
+        </select>
+        <select id="date-scope">
+          <option value="july_2026_forward" selected>Since Jul 1, 2026</option>
+          <option value="today_forward">Today Forward</option>
+          <option value="last_30">Last 30 Days</option>
+          <option value="all_history">All History</option>
+        </select>
+        <input id="search-box" placeholder="Search customer, rep, address, phone" />
+        <select id="auto-refresh">
+          <option value="off" selected>Auto Refresh Off</option>
+          <option value="30000">Auto Refresh 30s</option>
+          <option value="60000">Auto Refresh 60s</option>
+        </select>
+        <button id="refresh-btn" class="primary">Refresh</button>
+      </div>
+
+      <div id="status-line" class="status-line">Loading...</div>
+
+      <div class="grid-kpis">
+        <div class="panel kpi"><div class="kpi-label">Submitted</div><div id="kpi-submitted" class="kpi-value">0</div><div class="kpi-sub">Waiting for ZIP entry</div></div>
+        <div class="panel kpi"><div class="kpi-label">Entered in ZIP</div><div id="kpi-entered" class="kpi-value">0</div><div class="kpi-sub">Awaiting install outcome</div></div>
+        <div class="panel kpi"><div class="kpi-label">Ready to Invoice</div><div id="kpi-ready" class="kpi-value">0</div><div class="kpi-sub">Installed, not invoiced</div></div>
+        <div class="panel kpi"><div class="kpi-label">Invoiced</div><div id="kpi-invoiced" class="kpi-value">0</div><div class="kpi-sub">Already exported</div></div>
+        <div class="panel kpi"><div class="kpi-label">Pending Clawbacks</div><div id="kpi-clawbacks" class="kpi-value">0</div><div class="kpi-sub">Credits waiting export</div></div>
+        <div class="panel kpi"><div class="kpi-label">Exceptions</div><div id="kpi-exceptions" class="kpi-value">0</div><div class="kpi-sub">Canceled or rescheduled</div></div>
+      </div>
+
+      <div class="toolbar">
+        <div>
+          <h2>Review Queue</h2>
+          <div id="queue-sub" class="status-line">Showing newest install date first.</div>
+        </div>
+        <div class="toolbar-actions">
+          <button id="invoice-ready-btn" class="primary">Invoice Ready Installed Sales</button>
+          <button id="export-clawbacks-btn" class="credit">Export Pending Clawback Credits</button>
+          <button id="export-view-btn" class="ghost">Export Current View</button>
+        </div>
+      </div>
+
+      <div class="panel" style="padding:0; overflow:hidden;">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Install</th>
+                <th>Customer</th>
+                <th>Rep / Team</th>
+                <th>Address</th>
+                <th>Review / Invoice</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sales-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://zyioicczczmlsksxysqw.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5aW9pY2N6Y3ptbHNrc3h5c3F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzYyODMsImV4cCI6MjA5ODMxMjI4M30.Wfcn5_JA73k-Dq6YX0KpHZ3HLNsWa87v7TE3owDpOyM';
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const TEAM_LABELS = { all: 'All Teams', fiber: 'Fiber Sales Team', sfi: 'Sales Focus Inc.', lynxx: 'Lynxx' };
+    const JULY_1_2026 = '2026-07-01';
+
+    const els = {
+      authScreen: document.getElementById('auth-screen'),
+      appShell: document.getElementById('app-shell'),
+      loginEmail: document.getElementById('login-email'),
+      loginPassword: document.getElementById('login-password'),
+      loginBtn: document.getElementById('login-btn'),
+      authStatus: document.getElementById('auth-status'),
+      sessionEmail: document.getElementById('session-email'),
+      logoutBtn: document.getElementById('logout-btn'),
+      teamFilter: document.getElementById('team-filter'),
+      territoryFilter: document.getElementById('territory-filter'),
+      statusFilter: document.getElementById('status-filter'),
+      dateScope: document.getElementById('date-scope'),
+      searchBox: document.getElementById('search-box'),
+      autoRefresh: document.getElementById('auto-refresh'),
+      refreshBtn: document.getElementById('refresh-btn'),
+      statusLine: document.getElementById('status-line'),
+      queueSub: document.getElementById('queue-sub'),
+      salesBody: document.getElementById('sales-body'),
+      invoiceReadyBtn: document.getElementById('invoice-ready-btn'),
+      exportClawbacksBtn: document.getElementById('export-clawbacks-btn'),
+      exportViewBtn: document.getElementById('export-view-btn'),
+      kpiSubmitted: document.getElementById('kpi-submitted'),
+      kpiEntered: document.getElementById('kpi-entered'),
+      kpiReady: document.getElementById('kpi-ready'),
+      kpiInvoiced: document.getElementById('kpi-invoiced'),
+      kpiClawbacks: document.getElementById('kpi-clawbacks'),
+      kpiExceptions: document.getElementById('kpi-exceptions')
+    };
+
+    let state = { sales: [], clawbacks: [], addressesById: new Map(), filtered: [], userEmail: '' };
+    let refreshTimer = null;
+    let realtimeChannel = null;
+    let reloadTimer = null;
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    function normalize(value) { return String(value || '').trim().toLowerCase(); }
+    function normalizeTeam(value) {
+      const raw = normalize(value);
+      if (raw.includes('fiber')) return 'fiber';
+      if (raw.includes('sales focus') || raw === 'sfi') return 'sfi';
+      if (raw.includes('lynxx')) return 'lynxx';
+      if (['fiber', 'sfi', 'lynxx'].includes(raw)) return raw;
+      return raw || '';
+    }
+    function formatDate(value) {
+      if (!value) return '—';
+      const parts = String(value).slice(0, 10).split('-');
+      if (parts.length === 3) return `${parts[1]}/${parts[2]}/${parts[0]}`;
+      return String(value);
+    }
+    function formatDateTime(value) {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
+      return d.toLocaleString([], { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+    function todayYmd() {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    function addDaysYmd(days) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    function ymdToLocalDate(ymd) {
+      if (!ymd) return null;
+      const [y, m, d] = String(ymd).slice(0, 10).split('-').map(Number);
+      if (!y || !m || !d) return null;
+      return new Date(y, m - 1, d);
+    }
+    function daysBetween(startYmd, endYmd) {
+      const a = ymdToLocalDate(startYmd);
+      const b = ymdToLocalDate(endYmd);
+      if (!a || !b) return null;
+      return Math.round((b - a) / 86400000);
+    }
+    function isInvoiced(r) { return Boolean(r.invoice_id || r.invoice_batch_id || r.invoiced_at); }
+    function activeClawbackForSale(saleId) {
+      const matches = state.clawbacks.filter(cb => cb.sales_order_id === saleId && ['pending_credit', 'credited'].includes(normalize(cb.status)));
+      matches.sort((a, b) => {
+        const rank = s => normalize(s.status) === 'pending_credit' ? 1 : 2;
+        return rank(a) - rank(b) || String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      });
+      return matches[0] || null;
+    }
+    function lifecycle(r) {
+      const cb = activeClawbackForSale(r.id);
+      const outcome = normalize(r.install_outcome);
+      const review = normalize(r.review_status);
+      if (cb && normalize(cb.status) === 'pending_credit') return { key: 'clawback_pending', label: 'Clawback Pending Credit', className: 'credit' };
+      if (cb && normalize(cb.status) === 'credited') return { key: 'clawback_credited', label: 'Clawback Credited', className: 'credit' };
+      if (outcome === 'canceled' || outcome === 'cancelled') return { key: 'canceled', label: 'Canceled', className: 'canceled' };
+      if (outcome === 'needs_rescheduled' || outcome === 'rescheduled') return { key: 'needs_rescheduled', label: 'Needs Rescheduled', className: 'rescheduled' };
+      if (isInvoiced(r)) return { key: 'invoiced', label: 'Invoiced', className: 'invoiced' };
+      if (outcome === 'installed') return { key: 'installed_ready', label: 'Installed — Ready to Invoice', className: 'installed' };
+      if (review === 'entered_in_zip' || r.entered_in_zip_at) return { key: 'entered_in_zip', label: 'Entered into ZIP', className: 'entered' };
+      return { key: 'submitted', label: 'Submitted', className: 'submitted' };
+    }
+    function addressFor(r) { return r.address_id ? state.addressesById.get(r.address_id) || null : null; }
+    function displayAddress(r) {
+      const a = addressFor(r);
+      const line1 = r.address1 || a?.address1 || '—';
+      const city = r.city || a?.city || '';
+      const st = r.state || a?.state || '';
+      const zip = r.postal_code || r.zip || a?.postal_code || '';
+      return { line1, cityState: [city, st, zip].filter(Boolean).join(' '), external: a?.external_location_id || '' };
+    }
+    function clawbackEligible(r) {
+      if (normalize(r.install_outcome) !== 'installed') return false;
+      if (!isInvoiced(r)) return false;
+      if (!r.install_date) return false;
+      if (activeClawbackForSale(r.id)) return false;
+      const days = daysBetween(r.install_date, todayYmd());
+      return days !== null && days >= 0 && days <= 90;
+    }
+    function withinDateScope(r) {
+      const scope = els.dateScope.value;
+      if (scope === 'all_history') return true;
+      const basis = r.install_date || String(r.created_at || '').slice(0, 10);
+      if (!basis) return true;
+      if (scope === 'today_forward') return basis >= todayYmd();
+      if (scope === 'last_30') return basis >= addDaysYmd(-30);
+      return basis >= JULY_1_2026;
+    }
+    function teamMatches(r) {
+      const selected = els.teamFilter.value;
+      if (!selected || selected === 'all') return true;
+      return normalizeTeam(r.team_slug || r.team) === selected;
+    }
+    function territoryMatches(r) {
+      const selected = els.territoryFilter.value;
+      if (!selected || selected === 'all') return true;
+      return normalize(r.territory) === normalize(selected);
+    }
+    function statusMatches(r) {
+      const selected = els.statusFilter.value;
+      const st = lifecycle(r).key;
+      if (selected === 'all') return true;
+      if (selected === 'active') return ['submitted', 'entered_in_zip', 'installed_ready', 'needs_rescheduled'].includes(st);
+      if (selected === 'clawbacks_all') return st === 'clawback_pending' || st === 'clawback_credited';
+      if (selected === 'clawback_eligible') return clawbackEligible(r);
+      if (selected === 'clawback_pending') return st === 'clawback_pending';
+      return st === selected;
+    }
+    function searchMatches(r) {
+      const term = normalize(els.searchBox.value);
+      if (!term) return true;
+      const a = displayAddress(r);
+      const hay = [r.customer_name, r.rep_name, r.phone, r.email, r.package_name, r.territory, a.line1, a.cityState, a.external, r.invoice_id].map(v => normalize(v)).join(' | ');
+      return hay.includes(term);
+    }
+
+    function csvEscape(value) {
+      const str = String(value ?? '');
+      if (/[",\n\r]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+      return str;
+    }
+    function csvDownload(filename, rows) {
+      if (!rows.length) { alert('No rows to export.'); return; }
+      const headers = Object.keys(rows[0]);
+      const csv = [headers.join(','), ...rows.map(row => headers.map(h => csvEscape(row[h])).join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    async function signIn() {
+      const email = els.loginEmail.value.trim();
+      const password = els.loginPassword.value;
+      if (!email || !password) { els.authStatus.textContent = 'Enter email and password.'; return; }
+      els.authStatus.textContent = 'Signing in...';
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) els.authStatus.textContent = error.message || 'Could not sign in.';
+      else els.loginPassword.value = '';
+    }
+    async function signOut() { await supabaseClient.auth.signOut(); }
+    function showAuth(message = '') {
+      els.authScreen.classList.remove('hidden');
+      els.appShell.classList.add('hidden');
+      els.authStatus.textContent = message || 'Please sign in.';
+      if (refreshTimer) clearInterval(refreshTimer);
+      if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
+    }
+    function showApp(session) {
+      state.userEmail = normalize(session?.user?.email || '');
+      els.sessionEmail.textContent = state.userEmail || 'Signed in';
+      els.authScreen.classList.add('hidden');
+      els.appShell.classList.remove('hidden');
+    }
+
+    async function loadData() {
+      els.statusLine.textContent = 'Loading sales review and invoicing records...';
+      els.statusLine.className = 'status-line';
+      const salesSelect = [
+        'id','address_id','rep_name','customer_name','phone','email','package_name','install_date','install_time','notes','created_at','team','offer_id','offer_snapshot','monthly_total','first_bill_estimate','promo_price','promo_term','standard_rate','review_status','review_note','reviewed_at','reviewed_by','entered_in_zip_at','entered_in_zip_by','team_slug','territory','install_outcome','install_outcome_note','install_outcome_at','install_outcome_by','invoice_id','invoice_batch_id','invoiced_at','invoiced_by','source_system','source_import_key','address1','city','state','postal_code','zip','legacy_status','legacy_rescheduled','legacy_new_install_date','legacy_new_install_time','invoice_exported_at'
+      ].join(',');
+
+      const salesReq = supabaseClient
+        .from('sales_orders')
+        .select(salesSelect)
+        .order('install_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(2500);
+
+      const clawReq = supabaseClient
+        .from('sales_order_clawbacks')
+        .select('id,sales_order_id,team_slug,territory,customer_name,address_id,external_location_id,original_invoice_id,original_invoice_batch_id,original_invoiced_at,install_date,disconnect_date,days_from_install,clawback_reason,clawback_note,credit_required,status,credit_invoice_id,credit_invoice_batch_id,credited_at,credited_by,created_at,created_by,voided_at,voided_by,void_reason')
+        .order('created_at', { ascending: false })
+        .limit(1500);
+
+      const [salesRes, clawRes] = await Promise.all([salesReq, clawReq]);
+      if (salesRes.error) throw salesRes.error;
+      if (clawRes.error) throw clawRes.error;
+
+      state.sales = salesRes.data || [];
+      state.clawbacks = clawRes.data || [];
+      await loadAddressLookups(state.sales);
+      rebuildTerritoryOptions();
+      render();
+      setupRealtime();
+      els.statusLine.textContent = `Loaded ${state.sales.length} sales and ${state.clawbacks.length} clawback records. Last refresh: ${new Date().toLocaleTimeString()}.`;
+      els.statusLine.className = 'status-line ok';
+    }
+
+    async function loadAddressLookups(sales) {
+      state.addressesById = new Map();
+      const ids = [...new Set(sales.map(r => r.address_id).filter(Boolean))];
+      if (!ids.length) return;
+      for (let i = 0; i < ids.length; i += 400) {
+        const chunk = ids.slice(i, i + 400);
+        const { data, error } = await supabaseClient
+          .from('addresses')
+          .select('id,external_location_id,address1,city,state,postal_code,team_slug,territory')
+          .in('id', chunk);
+        if (error) { console.warn('Address lookup failed.', error); continue; }
+        (data || []).forEach(a => state.addressesById.set(a.id, a));
+      }
+    }
+
+    function rebuildTerritoryOptions() {
+      const previous = els.territoryFilter.value || 'all';
+      const territories = [...new Set(state.sales.filter(teamMatches).map(r => r.territory).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+      els.territoryFilter.innerHTML = '<option value="all">All Territories</option>' + territories.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+      els.territoryFilter.value = territories.includes(previous) ? previous : 'all';
+    }
+
+    function currentRows() {
+      let rows = state.sales.filter(r => teamMatches(r) && territoryMatches(r) && withinDateScope(r) && statusMatches(r) && searchMatches(r));
+      rows.sort(compareRows);
+      return rows;
+    }
+    function compareRows(a, b) {
+      const ai = a.install_date || '0000-00-00';
+      const bi = b.install_date || '0000-00-00';
+      if (ai !== bi) return bi.localeCompare(ai);
+      const at = String(a.install_time || '');
+      const bt = String(b.install_time || '');
+      if (at !== bt) return compareTimeDesc(at, bt);
+      return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    }
+    function parseTimeMinutes(t) {
+      const s = String(t || '').trim().toLowerCase();
+      const m = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+      if (!m) return -1;
+      let h = Number(m[1]);
+      const min = Number(m[2] || 0);
+      const ap = m[3];
+      if (ap === 'pm' && h < 12) h += 12;
+      if (ap === 'am' && h === 12) h = 0;
+      return h * 60 + min;
+    }
+    function compareTimeDesc(a, b) { return parseTimeMinutes(b) - parseTimeMinutes(a); }
+
+    function render() {
+      state.filtered = currentRows();
+      renderKpis();
+      renderTable();
+      const label = TEAM_LABELS[els.teamFilter.value] || 'selected team';
+      els.queueSub.textContent = `Showing ${state.filtered.length} record(s) for ${label}. Newest install date/time appears first.`;
+    }
+    function renderKpis() {
+      const base = state.sales.filter(r => teamMatches(r) && territoryMatches(r) && withinDateScope(r) && searchMatches(r));
+      const count = key => base.filter(r => lifecycle(r).key === key).length;
+      const ready = base.filter(r => normalize(r.install_outcome) === 'installed' && !isInvoiced(r) && !activeClawbackForSale(r.id)).length;
+      const clawPending = state.clawbacks.filter(cb => normalize(cb.status) === 'pending_credit' && clawbackScopeMatches(cb)).length;
+      els.kpiSubmitted.textContent = count('submitted');
+      els.kpiEntered.textContent = count('entered_in_zip');
+      els.kpiReady.textContent = ready;
+      els.kpiInvoiced.textContent = count('invoiced') + count('clawback_pending') + count('clawback_credited');
+      els.kpiClawbacks.textContent = clawPending;
+      els.kpiExceptions.textContent = count('canceled') + count('needs_rescheduled');
+    }
+    function clawbackScopeMatches(cb) {
+      const team = els.teamFilter.value;
+      const territory = els.territoryFilter.value;
+      if (team && team !== 'all' && normalizeTeam(cb.team_slug) !== team) return false;
+      if (territory && territory !== 'all' && normalize(cb.territory) !== normalize(territory)) return false;
+      return true;
+    }
+    function renderTable() {
+      if (!state.filtered.length) {
+        els.salesBody.innerHTML = '<tr><td colspan="7"><div class="status-line">No sales matched the current filters.</div></td></tr>';
+        return;
+      }
+      els.salesBody.innerHTML = state.filtered.map(r => rowHtml(r)).join('');
+    }
+    function rowHtml(r) {
+      const st = lifecycle(r);
+      const a = displayAddress(r);
+      const cb = activeClawbackForSale(r.id);
+      const invoiceParts = [];
+      if (r.invoice_id) invoiceParts.push(`Invoice: ${escapeHtml(r.invoice_id)}`);
+      if (r.invoiced_at) invoiceParts.push(`Invoiced: ${escapeHtml(formatDateTime(r.invoiced_at))}`);
+      if (r.entered_in_zip_at) invoiceParts.push(`ZIP: ${escapeHtml(formatDateTime(r.entered_in_zip_at))}`);
+      if (r.install_outcome_at) invoiceParts.push(`Outcome: ${escapeHtml(formatDateTime(r.install_outcome_at))}`);
+      if (cb) invoiceParts.push(`Clawback: ${escapeHtml(cb.status || '')}${cb.credit_invoice_id ? ' / ' + escapeHtml(cb.credit_invoice_id) : ''}`);
+      return `<tr data-id="${escapeHtml(r.id)}">
+        <td><span class="badge ${escapeHtml(st.className)}">${escapeHtml(st.label)}</span><div class="cell-sub">${escapeHtml(r.review_status || 'submitted')}</div></td>
+        <td><div class="cell-title">${escapeHtml(formatDate(r.install_date))}</div><div class="cell-sub">${escapeHtml(r.install_time || '—')}</div></td>
+        <td><div class="cell-title">${escapeHtml(r.customer_name || '—')}</div><div class="cell-sub">${escapeHtml(r.phone || '—')}</div><div class="cell-sub">${escapeHtml(r.email || '—')}</div></td>
+        <td><div class="cell-title">${escapeHtml(r.rep_name || '—')}</div><div class="cell-sub">${escapeHtml(TEAM_LABELS[normalizeTeam(r.team_slug || r.team)] || r.team || r.team_slug || '—')}</div><div class="cell-sub">${escapeHtml(r.territory || '—')}</div></td>
+        <td><div class="cell-title">${escapeHtml(a.line1)}</div><div class="cell-sub">${escapeHtml(a.cityState || '—')}</div><div class="cell-sub">External ID: ${escapeHtml(a.external || '—')}</div></td>
+        <td><div class="cell-title">${escapeHtml(r.package_name || '—')}</div><div class="cell-sub">${invoiceParts.length ? invoiceParts.join('<br>') : 'No invoice or outcome yet.'}</div><div class="cell-sub">${escapeHtml(r.notes || '')}</div></td>
+        <td>${actionHtml(r)}</td>
+      </tr>`;
+    }
+    function actionHtml(r) {
+      const st = lifecycle(r).key;
+      const installed = normalize(r.install_outcome) === 'installed';
+      const alreadyInvoiced = isInvoiced(r);
+      const disabledInvoice = installed && !alreadyInvoiced ? '' : 'disabled';
+      const claw = clawbackEligible(r) ? '' : 'disabled';
+      return `<div class="row-actions">
+        <button data-action="entered" data-id="${escapeHtml(r.id)}" class="primary" ${st === 'submitted' ? '' : 'disabled'}>Entered in ZIP</button>
+        <button data-action="installed" data-id="${escapeHtml(r.id)}" class="good" ${alreadyInvoiced ? 'disabled' : ''}>Installed</button>
+        <button data-action="rescheduled" data-id="${escapeHtml(r.id)}" class="warn" ${alreadyInvoiced ? 'disabled' : ''}>Needs Rescheduled</button>
+        <button data-action="canceled" data-id="${escapeHtml(r.id)}" class="bad" ${alreadyInvoiced ? 'disabled' : ''}>Canceled</button>
+        <button data-action="single-invoice" data-id="${escapeHtml(r.id)}" class="primary full" ${disabledInvoice}>Invoice This Sale</button>
+        <button data-action="clawback" data-id="${escapeHtml(r.id)}" class="credit full" ${claw}>Add Clawback Credit</button>
+      </div>`;
+    }
+
+    async function updateSale(id, payload) {
+      const { error } = await supabaseClient.from('sales_orders').update(payload).eq('id', id);
+      if (error) throw error;
+    }
+    async function markEntered(id) {
+      const sale = state.sales.find(r => r.id === id);
+      if (!sale) return;
+      await updateSale(id, { review_status: 'entered_in_zip', entered_in_zip_at: new Date().toISOString(), entered_in_zip_by: state.userEmail });
+      await loadData();
+    }
+    async function markOutcome(id, outcome) {
+      const sale = state.sales.find(r => r.id === id);
+      if (!sale) return;
+      const label = outcome === 'installed' ? 'installed' : outcome === 'canceled' ? 'canceled' : 'needs rescheduled';
+      if (!confirm(`Mark ${sale.customer_name || 'this sale'} as ${label}?`)) return;
+      await updateSale(id, {
+        review_status: normalize(sale.review_status) === 'submitted' ? 'entered_in_zip' : sale.review_status,
+        install_outcome: outcome,
+        install_outcome_at: new Date().toISOString(),
+        install_outcome_by: state.userEmail,
+        review_note: appendNote(sale.review_note, `Marked ${label} from fast Sales Review page by ${state.userEmail} on ${new Date().toLocaleString()}`)
+      });
+      await loadData();
+    }
+    function appendNote(existing, next) { return [existing, next].filter(Boolean).join(' | '); }
+
+    async function nextInvoiceId(prefix = 'Zito') {
+      const { data, error } = await supabaseClient.from('sales_orders').select('invoice_id').not('invoice_id', 'is', null).limit(2500);
+      if (error) { console.warn('Could not calculate next invoice id.', error); return `${prefix}-${Date.now()}`; }
+      let max = 0;
+      (data || []).forEach(r => {
+        const m = String(r.invoice_id || '').match(new RegExp('^' + prefix + '-(\d+)$', 'i'));
+        if (m) max = Math.max(max, Number(m[1]));
+      });
+      return `${prefix}-${max + 1}`;
+    }
+    function invoiceExportRows(rows, invoiceId, batchId) {
+      return rows.map(r => {
+        const a = displayAddress(r);
+        return {
+          line_type: 'Installed Sale',
+          invoice_id: invoiceId,
+          invoice_batch_id: batchId,
+          team_slug: normalizeTeam(r.team_slug || r.team),
+          territory: r.territory || '',
+          rep_name: r.rep_name || '',
+          customer_name: r.customer_name || '',
+          phone: r.phone || '',
+          email: r.email || '',
+          address: a.line1,
+          city_state_zip: a.cityState,
+          external_location_id: a.external,
+          package_name: r.package_name || '',
+          install_date: r.install_date || '',
+          install_time: r.install_time || '',
+          review_status: r.review_status || '',
+          install_outcome: r.install_outcome || '',
+          credit_required: 'No',
+          notes: r.notes || ''
+        };
+      });
+    }
+    async function invoiceRows(rows, requestedInvoiceId = '') {
+      const ready = rows.filter(r => normalize(r.install_outcome) === 'installed' && !isInvoiced(r));
+      if (!ready.length) { alert('No installed sales are ready to invoice in this selection.'); return; }
+      const defaultInvoiceId = requestedInvoiceId || await nextInvoiceId('Zito');
+      const invoiceId = prompt(`Invoice ID for ${ready.length} installed sale(s):`, defaultInvoiceId);
+      if (!invoiceId) return;
+      const batchId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const ids = ready.map(r => r.id);
+      const { error } = await supabaseClient.from('sales_orders').update({
+        invoice_id: invoiceId,
+        invoice_batch_id: batchId,
+        invoiced_at: now,
+        invoiced_by: state.userEmail,
+        invoice_exported_at: now,
+        review_note: `Exported from fast Sales Review page as ${invoiceId} by ${state.userEmail} on ${new Date().toLocaleString()}`
+      }).in('id', ids);
+      if (error) throw error;
+      csvDownload(`fieldos_invoice_${invoiceId}.csv`, invoiceExportRows(ready, invoiceId, batchId));
+      await loadData();
+    }
+
+    async function addClawback(id) {
+      const sale = state.sales.find(r => r.id === id);
+      if (!sale) return;
+      if (!clawbackEligible(sale)) { alert('This sale is not eligible for a clawback. It must be installed, invoiced, within 90 days of install, and have no existing clawback.'); return; }
+      const disconnectDate = prompt('Disconnect date YYYY-MM-DD:', todayYmd());
+      if (!disconnectDate) return;
+      const days = daysBetween(sale.install_date, disconnectDate);
+      if (days === null || days < 0) { alert('Disconnect date is invalid or before install date.'); return; }
+      if (days > 90) { alert(`This customer disconnected after ${days} days. The 90-day clawback window has expired.`); return; }
+      const reason = prompt('Reason for clawback credit:', 'Disconnected within 90 days');
+      if (!reason) return;
+      const note = prompt('Optional note:', '') || '';
+      const a = displayAddress(sale);
+      const payload = {
+        sales_order_id: sale.id,
+        team_slug: normalizeTeam(sale.team_slug || sale.team),
+        territory: sale.territory || null,
+        customer_name: sale.customer_name || null,
+        address_id: sale.address_id || null,
+        external_location_id: a.external || null,
+        original_invoice_id: sale.invoice_id || null,
+        original_invoice_batch_id: sale.invoice_batch_id || null,
+        original_invoiced_at: sale.invoiced_at || null,
+        install_date: sale.install_date,
+        disconnect_date: disconnectDate,
+        days_from_install: days,
+        clawback_reason: reason,
+        clawback_note: note,
+        credit_required: true,
+        status: 'pending_credit',
+        created_by: state.userEmail
+      };
+      const { error } = await supabaseClient.from('sales_order_clawbacks').insert(payload);
+      if (error) throw error;
+      await loadData();
+    }
+
+    function pendingClawbacksInScope() {
+      return state.clawbacks.filter(cb => normalize(cb.status) === 'pending_credit' && clawbackScopeMatches(cb));
+    }
+    function clawbackExportRows(rows, creditInvoiceId, batchId) {
+      return rows.map(cb => {
+        const sale = state.sales.find(r => r.id === cb.sales_order_id) || {};
+        const a = sale.id ? displayAddress(sale) : { line1: '', cityState: '', external: cb.external_location_id || '' };
+        return {
+          line_type: 'Clawback Credit',
+          credit_invoice_id: creditInvoiceId,
+          credit_invoice_batch_id: batchId,
+          team_slug: cb.team_slug || sale.team_slug || '',
+          territory: cb.territory || sale.territory || '',
+          rep_name: sale.rep_name || '',
+          customer_name: cb.customer_name || sale.customer_name || '',
+          address: a.line1,
+          city_state_zip: a.cityState,
+          external_location_id: cb.external_location_id || a.external || '',
+          original_invoice_id: cb.original_invoice_id || sale.invoice_id || '',
+          install_date: cb.install_date || sale.install_date || '',
+          disconnect_date: cb.disconnect_date || '',
+          days_from_install: cb.days_from_install ?? '',
+          credit_required: 'Yes',
+          reason: cb.clawback_reason || '',
+          note: cb.clawback_note || ''
+        };
+      });
+    }
+    async function exportPendingClawbacks() {
+      const pending = pendingClawbacksInScope();
+      if (!pending.length) { alert('No pending clawback credits in the current team/territory scope.'); return; }
+      const defaultId = `Clawbacks-${todayYmd().replaceAll('-', '')}`;
+      const creditInvoiceId = prompt(`Credit invoice/export ID for ${pending.length} clawback credit(s):`, defaultId);
+      if (!creditInvoiceId) return;
+      const batchId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const ids = pending.map(cb => cb.id);
+      const { error } = await supabaseClient.from('sales_order_clawbacks').update({
+        status: 'credited',
+        credit_invoice_id: creditInvoiceId,
+        credit_invoice_batch_id: batchId,
+        credited_at: now,
+        credited_by: state.userEmail
+      }).in('id', ids);
+      if (error) throw error;
+      csvDownload(`fieldos_clawback_credits_${creditInvoiceId}.csv`, clawbackExportRows(pending, creditInvoiceId, batchId));
+      await loadData();
+    }
+
+    function currentViewExportRows() {
+      return state.filtered.map(r => {
+        const st = lifecycle(r);
+        const a = displayAddress(r);
+        const cb = activeClawbackForSale(r.id);
+        return {
+          lifecycle_status: st.label,
+          created_at: r.created_at || '',
+          team_slug: normalizeTeam(r.team_slug || r.team),
+          territory: r.territory || '',
+          rep_name: r.rep_name || '',
+          customer_name: r.customer_name || '',
+          phone: r.phone || '',
+          email: r.email || '',
+          address: a.line1,
+          city_state_zip: a.cityState,
+          external_location_id: a.external,
+          package_name: r.package_name || '',
+          install_date: r.install_date || '',
+          install_time: r.install_time || '',
+          review_status: r.review_status || '',
+          entered_in_zip_at: r.entered_in_zip_at || '',
+          install_outcome: r.install_outcome || '',
+          install_outcome_at: r.install_outcome_at || '',
+          invoice_id: r.invoice_id || '',
+          invoiced_at: r.invoiced_at || '',
+          clawback_status: cb?.status || '',
+          clawback_reason: cb?.clawback_reason || '',
+          notes: r.notes || ''
+        };
+      });
+    }
+
+    function setupRealtime() {
+      if (realtimeChannel) return;
+      realtimeChannel = supabaseClient.channel('fieldos-fast-sales-review')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, scheduleReload)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_order_clawbacks' }, scheduleReload)
+        .subscribe();
+    }
+    function scheduleReload() {
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => loadData().catch(showError), 900);
+    }
+    function showError(error) {
+      console.error(error);
+      els.statusLine.textContent = error?.message || String(error) || 'Something went wrong.';
+      els.statusLine.className = 'status-line error';
+    }
+
+    els.loginBtn.onclick = () => signIn().catch(err => { els.authStatus.textContent = err.message || String(err); });
+    els.loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') els.loginBtn.click(); });
+    els.logoutBtn.onclick = signOut;
+    els.refreshBtn.onclick = () => loadData().catch(showError);
+    els.teamFilter.onchange = () => { rebuildTerritoryOptions(); render(); };
+    els.territoryFilter.onchange = render;
+    els.statusFilter.onchange = render;
+    els.dateScope.onchange = render;
+    els.searchBox.addEventListener('input', () => render());
+    els.autoRefresh.onchange = () => {
+      if (refreshTimer) clearInterval(refreshTimer);
+      const ms = Number(els.autoRefresh.value || 0);
+      if (ms) refreshTimer = setInterval(() => loadData().catch(showError), ms);
+    };
+    els.exportViewBtn.onclick = () => csvDownload('fieldos_sales_review_current_view.csv', currentViewExportRows());
+    els.invoiceReadyBtn.onclick = () => invoiceRows(state.filtered).catch(showError);
+    els.exportClawbacksBtn.onclick = () => exportPendingClawbacks().catch(showError);
+
+    els.salesBody.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn || btn.disabled) return;
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      (async () => {
+        if (action === 'entered') await markEntered(id);
+        if (action === 'installed') await markOutcome(id, 'installed');
+        if (action === 'rescheduled') await markOutcome(id, 'needs_rescheduled');
+        if (action === 'canceled') await markOutcome(id, 'canceled');
+        if (action === 'single-invoice') {
+          const sale = state.sales.find(r => r.id === id);
+          if (sale) await invoiceRows([sale]);
+        }
+        if (action === 'clawback') await addClawback(id);
+      })().catch(showError);
+    });
+
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        showApp(session);
+        loadData().catch(showError);
+      } else {
+        showAuth('Please sign in.');
+      }
+    });
+
+    (async function init() {
+      const { data } = await supabaseClient.auth.getSession();
+      if (data?.session?.user) { showApp(data.session); await loadData(); }
+      else showAuth('Please sign in.');
+    })().catch(err => showAuth(err.message || String(err)));
+  </script>
+</body>
+</html>
