@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zito FieldOS Team Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #0f172a;
+      --panel2: #111827;
+      --border: #1e293b;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --info: #38bdf8;
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(34,211,238,.13), transparent 38rem),
+        radial-gradient(circle at top right, rgba(59,130,246,.10), transparent 32rem),
+        var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+    .wrap { max-width: 1420px; margin: 0 auto; }
+    h1, h2, h3, p { margin: 0; }
+    .hidden { display: none !important; }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .2em; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
+    h1 { font-size: clamp(28px, 4vw, 46px); line-height: 1.05; }
+    .sub { color: var(--muted); margin-top: 8px; line-height: 1.45; }
+    .auth-shell { min-height: calc(100vh - 48px); display: flex; align-items: center; justify-content: center; }
+    .auth-card {
+      width: min(470px, 100%);
+      background: linear-gradient(180deg, rgba(15,23,42,.96), rgba(17,24,39,.96));
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 24px 90px rgba(0,0,0,.35);
+    }
+    .auth-grid { display: grid; gap: 12px; margin-top: 18px; }
+    input, select, button, textarea {
+      background: #020617;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 11px 12px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    button { cursor: pointer; }
+    .primary { background: var(--accent) !important; color: #082f49 !important; border: none !important; font-weight: 900; }
+    .panel {
+      background: linear-gradient(180deg, rgba(15,23,42,.96), rgba(17,24,39,.96));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: 0 20px 70px rgba(0,0,0,.18);
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr 1fr 1fr auto;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,.24);
+      color: #cbd5e1;
+      background: rgba(2,6,23,.72);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .auth-top-right { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .status-line { color: var(--muted); font-size: 13px; margin: 12px 0 18px; line-height: 1.45; }
+    .status-line.error { color: #fecaca; }
+    .notice {
+      border: 1px solid rgba(34,211,238,.24);
+      background: rgba(34,211,238,.08);
+      color: #bae6fd;
+      border-radius: 16px;
+      padding: 13px 14px;
+      line-height: 1.45;
+      margin-bottom: 18px;
+    }
+    .notice.warn { border-color: rgba(245,158,11,.30); background: rgba(245,158,11,.10); color: #fde68a; }
+    .grid-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+    .kpi-value { font-size: 32px; font-weight: 900; margin-top: 10px; }
+    .kpi-sub { color: var(--muted); font-size: 12px; margin-top: 7px; line-height: 1.35; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .panel-sub { color: var(--muted); font-size: 13px; margin-top: 6px; line-height: 1.45; }
+    .table-wrap { overflow: auto; max-height: 620px; border-radius: 14px; border: 1px solid rgba(148,163,184,.12); }
+    table { width: 100%; border-collapse: collapse; min-width: 1060px; font-size: 13px; }
+    th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid rgba(148,163,184,.10); vertical-align: top; }
+    th { position: sticky; top: 0; z-index: 2; background: #0f172a; color: var(--muted); font-weight: 900; }
+    tr:hover td { background: rgba(30,41,59,.25); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,.26);
+      color: #cbd5e1;
+      background: rgba(148,163,184,.10);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .badge.good { color: #bbf7d0; background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.32); }
+    .badge.warn { color: #fde68a; background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.32); }
+    .badge.bad { color: #fecaca; background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.32); }
+    .badge.info { color: #bae6fd; background: rgba(14,165,233,.14); border-color: rgba(14,165,233,.32); }
+    .muted { color: var(--muted); }
+    .strong { font-weight: 900; color: #f8fafc; }
+    .list { display: grid; gap: 10px; }
+    .list-item { background: rgba(30,41,59,.50); border: 1px solid rgba(148,163,184,.12); border-radius: 15px; padding: 13px; display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .list-title { font-weight: 900; line-height: 1.35; }
+    .list-sub { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.4; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .small-btn { padding: 8px 10px; font-size: 12px; font-weight: 800; }
+    .link-btn { text-decoration: none; display:inline-flex; align-items:center; }
+    .tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+    .tab-btn.active { background: var(--accent); color: #082f49; border: none; font-weight: 900; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    @media (max-width: 1200px) {
+      .controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .grid-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 700px) {
+      body { padding: 12px; }
+      .controls, .grid-kpis { grid-template-columns: 1fr; }
+      .kpi-value { font-size: 27px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="auth-screen" class="auth-shell">
+    <div class="auth-card">
+      <div class="eyebrow">Zito FieldOS</div>
+      <h2 id="auth-title">Team Dashboard Login</h2>
+      <p class="sub" id="auth-subtitle">Sign in with your approved dashboard email. This page is locked to one sales company.</p>
+      <div class="auth-grid">
+        <input id="login-email" type="email" placeholder="Email" autocomplete="username" />
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="login-btn" class="primary" type="button">Sign In</button>
+      </div>
+      <div id="auth-status" class="status-line">Waiting for sign in.</div>
+    </div>
+  </div>
+
+  <div id="dashboard-shell" class="hidden">
+    <div class="wrap">
+      <div class="top">
+        <div>
+          <div class="eyebrow">Zito FieldOS</div>
+          <h1 id="dashboard-title">Sales Team Dashboard</h1>
+          <p id="dashboard-subtitle" class="sub">Locked team view for sales, install status, recent activity, and rep performance.</p>
+        </div>
+        <div class="auth-top-right">
+          <div id="team-pill" class="pill">Team loading</div>
+          <div id="session-email" class="pill">Not signed in</div>
+          <button id="logout-btn" class="small-btn" type="button">Log Out</button>
+        </div>
+      </div>
+
+      <div id="locked-notice" class="notice">
+        This is a dedicated sales-team page. There is no company selector and no company admin data on this screen.
+      </div>
+
+      <div class="panel controls">
+        <select id="territory-filter"><option value="all">All Territories</option></select>
+        <select id="rep-filter"><option value="all">All Reps</option></select>
+        <select id="status-filter">
+          <option value="all">All Sales Statuses</option>
+          <option value="submitted">Submitted</option>
+          <option value="entered_in_zip">Entered into ZIP</option>
+          <option value="installed">Installed</option>
+          <option value="invoiced">Invoiced</option>
+          <option value="needs_rescheduled">Needs Rescheduled</option>
+          <option value="canceled">Canceled</option>
+          <option value="needs_review">Needs Review</option>
+        </select>
+        <input id="start-date" type="date" />
+        <input id="end-date" type="date" />
+        <button id="refresh-btn" class="primary" type="button">Refresh</button>
+        <input id="search-box" placeholder="Search customer, address, phone, rep" />
+        <select id="auto-refresh">
+          <option value="off" selected>Auto Refresh Off</option>
+          <option value="60000">Auto Refresh 60s</option>
+          <option value="120000">Auto Refresh 2 min</option>
+          <option value="300000">Auto Refresh 5 min</option>
+        </select>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="overview" type="button">Overview</button>
+        <button class="tab-btn" data-tab="sales" type="button">Sales Status</button>
+        <button class="tab-btn" data-tab="activity" type="button">Recent Activity</button>
+        <button class="tab-btn" data-tab="reps" type="button">Rep Performance</button>
+      </div>
+
+      <div id="status-line" class="status-line">Waiting for data.</div>
+
+      <div id="tab-overview" class="tab-panel active">
+        <div class="grid-kpis">
+          <div class="panel"><div class="kpi-label">Sales</div><div id="kpi-sales" class="kpi-value">0</div><div class="kpi-sub">Visible submitted sales</div></div>
+          <div class="panel"><div class="kpi-label">Today</div><div id="kpi-today" class="kpi-value">0</div><div class="kpi-sub">Sales created today</div></div>
+          <div class="panel"><div class="kpi-label">Installed</div><div id="kpi-installed" class="kpi-value">0</div><div class="kpi-sub">Installed sales</div></div>
+          <div class="panel"><div class="kpi-label">Needs Rescheduled</div><div id="kpi-rescheduled" class="kpi-value">0</div><div class="kpi-sub">Install follow-up required</div></div>
+          <div class="panel"><div class="kpi-label">Invoiced</div><div id="kpi-invoiced" class="kpi-value">0</div><div class="kpi-sub">Already invoiced</div></div>
+          <div class="panel"><div class="kpi-label">Close Rate</div><div id="kpi-close-rate" class="kpi-value">0.0%</div><div class="kpi-sub">Sales / worked doors</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Status Summary</h2><div class="panel-sub">Sales lifecycle grouped for this team only.</div></div>
+            </div>
+            <div id="status-summary-list" class="list"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Territory Summary</h2><div class="panel-sub">Sales and worked doors by territory.</div></div>
+            </div>
+            <div id="territory-summary-list" class="list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-sales" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Sales Status Tracker</h2>
+              <div class="panel-sub">Read-only lifecycle view for this sales company. This page does not expose other vendors.</div>
+            </div>
+            <div class="actions">
+              <button id="export-sales-btn" class="small-btn" type="button">Export Visible Sales</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Created</th>
+                  <th>Status</th>
+                  <th>Rep</th>
+                  <th>Territory</th>
+                  <th>Customer</th>
+                  <th>Contact</th>
+                  <th>Address</th>
+                  <th>Package</th>
+                  <th>Offer / Promo</th>
+                  <th>Install</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="sales-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-activity" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Recent Team Activity</h2>
+              <div class="panel-sub">Sales and disposition activity for this team only.</div>
+            </div>
+            <div class="actions">
+              <button id="export-activity-btn" class="small-btn" type="button">Export Activity</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Type</th><th>Rep</th><th>Territory</th><th>Address / Customer</th><th>Status</th><th>Note</th></tr></thead>
+              <tbody id="activity-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-reps" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Rep Performance</h2>
+              <div class="panel-sub">Sales, worked doors, and close rate based on visible team data.</div>
+            </div>
+            <div class="actions">
+              <button id="export-reps-btn" class="small-btn" type="button">Export Rep Summary</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Rep</th><th>Territories</th><th>Sales</th><th>Worked Doors</th><th>Close Rate</th><th>Latest Activity</th></tr></thead>
+              <tbody id="rep-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  const SUPABASE_URL = "https://zyioicczczmlsksxysqw.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5aW9pY2N6Y3ptbHNrc3h5c3F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzYyODMsImV4cCI6MjA5ODMxMjI4M30.Wfcn5_JA73k-Dq6YX0KpHZ3HLNsWa87v7TE3owDpOyM";
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const VALID_TEAM_SLUGS = ['fiber', 'sfi', 'lynxx'];
+  const TEAM_LABELS = {
+    fiber: 'Fiber Sales Team',
+    sfi: 'Sales Focus Inc.',
+    lynxx: 'Lynxx'
+  };
+  const TEAM_TERRITORIES = {
+    fiber: ['bryson_city_nc','cameron_tx','crawford_tx','elmwood_ne','palmyra_ne','syracuse_ne','wilber_ne','palestine_tx','point_coupee_la','burnsville_nc'],
+    sfi: ['pottsville_pa','saint_marys_pa','st_marys_pa'],
+    lynxx: ['battle_mountain_nv','elko_nv']
+  };
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const hardcodedTeam = (window.FIELDOS_TEAM_SLUG || '').toLowerCase().trim();
+  const urlTeam = (urlParams.get('team') || '').toLowerCase().trim();
+  const PAGE_TEAM = VALID_TEAM_SLUGS.includes(hardcodedTeam) ? hardcodedTeam : (VALID_TEAM_SLUGS.includes(urlTeam) ? urlTeam : 'fiber');
+
+  const els = {
+    authScreen: document.getElementById('auth-screen'),
+    dashboardShell: document.getElementById('dashboard-shell'),
+    loginEmail: document.getElementById('login-email'),
+    loginPassword: document.getElementById('login-password'),
+    loginBtn: document.getElementById('login-btn'),
+    authStatus: document.getElementById('auth-status'),
+    authTitle: document.getElementById('auth-title'),
+    authSubtitle: document.getElementById('auth-subtitle'),
+    logoutBtn: document.getElementById('logout-btn'),
+    sessionEmail: document.getElementById('session-email'),
+    teamPill: document.getElementById('team-pill'),
+    dashboardTitle: document.getElementById('dashboard-title'),
+    dashboardSubtitle: document.getElementById('dashboard-subtitle'),
+    lockedNotice: document.getElementById('locked-notice'),
+    statusLine: document.getElementById('status-line'),
+    territory: document.getElementById('territory-filter'),
+    rep: document.getElementById('rep-filter'),
+    status: document.getElementById('status-filter'),
+    start: document.getElementById('start-date'),
+    end: document.getElementById('end-date'),
+    refresh: document.getElementById('refresh-btn'),
+    search: document.getElementById('search-box'),
+    autoRefresh: document.getElementById('auto-refresh'),
+    salesBody: document.getElementById('sales-body'),
+    activityBody: document.getElementById('activity-body'),
+    repBody: document.getElementById('rep-body'),
+    statusSummaryList: document.getElementById('status-summary-list'),
+    territorySummaryList: document.getElementById('territory-summary-list'),
+    exportSales: document.getElementById('export-sales-btn'),
+    exportActivity: document.getElementById('export-activity-btn'),
+    exportReps: document.getElementById('export-reps-btn')
+  };
+
+  let dashboardAccess = { resolved: false, email: '', isCompanyAdmin: false, allowedTeams: [] };
+  let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [] };
+  let renderedState = { sales: [], activity: [], reps: [] };
+  let refreshTimer = null;
+  let loading = false;
+
+  function idKey(value) {
+    return value === null || value === undefined ? '' : String(value).trim();
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+
+  function firstNonEmpty(...values) {
+    for (const value of values) {
+      if (value !== null && value !== undefined && String(value).trim() !== '') return value;
+    }
+    return '';
+  }
+
+  function normalizeTeamSlug(value) {
+    const raw = String(value || '').toLowerCase().trim();
+    if (raw === 'all') return 'all';
+    if (raw === 'sales_focus' || raw === 'sales_focus_inc' || raw.includes('sales focus')) return 'sfi';
+    if (raw.includes('fiber')) return 'fiber';
+    if (raw.includes('lynxx')) return 'lynxx';
+    return raw.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
+  function normalizeTerritory(value) {
+    let key = String(value || '').toLowerCase().trim();
+    key = key.replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/_+/g, '_');
+    const aliases = {
+      bryson_city: 'bryson_city_nc',
+      bryson_city_north_carolina: 'bryson_city_nc',
+      cameron: 'cameron_tx',
+      cameron_texas: 'cameron_tx',
+      crawford: 'crawford_tx',
+      crawford_texas: 'crawford_tx',
+      elmwood: 'elmwood_ne',
+      palmyra: 'palmyra_ne',
+      syracuse: 'syracuse_ne',
+      wilber: 'wilber_ne',
+      pottsville: 'pottsville_pa',
+      saint_marys: 'saint_marys_pa',
+      st_marys: 'saint_marys_pa',
+      saint_marys_pennsylvania: 'saint_marys_pa',
+      battle_mountain: 'battle_mountain_nv'
+    };
+    return aliases[key] || key;
+  }
+
+  function formatDate(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? String(value) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  function timeValue(value) {
+    const t = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  function money(value) {
+    if (value === null || value === undefined || value === '') return '';
+    const n = Number(String(value).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(n)) return String(value);
+    return '$' + n.toFixed(2);
+  }
+
+  function todayIso() {
+    const d = new Date();
+    return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+  }
+
+  function defaultStartIso() {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+  }
+
+  function setDefaultDates() {
+    if (!els.start.value) els.start.value = defaultStartIso();
+    if (!els.end.value) els.end.value = todayIso();
+  }
+
+  function teamLabel() {
+    return TEAM_LABELS[PAGE_TEAM] || PAGE_TEAM;
+  }
+
+  function allowedTerritoryKeysForTeam(teamSlug) {
+    return (TEAM_TERRITORIES[teamSlug] || []).map(normalizeTerritory);
+  }
+
+  function getTeamSlug(row, addressMap = null, slotMap = null) {
+    const direct = normalizeTeamSlug(firstNonEmpty(row?.team_slug, row?.team, row?.company, row?.vendor, row?.source_team));
+    if (VALID_TEAM_SLUGS.includes(direct)) return direct;
+
+    const linked = getLinkedAddress(row, addressMap);
+    const linkedTeam = normalizeTeamSlug(firstNonEmpty(linked?.team_slug, linked?.team, linked?.company, linked?.vendor));
+    if (VALID_TEAM_SLUGS.includes(linkedTeam)) return linkedTeam;
+
+    if (slotMap) {
+      const slot = slotMap.get(idKey(row?.schedule_slot_id)) || slotMap.get(idKey(row?.slot_id));
+      const slotTeam = normalizeTeamSlug(firstNonEmpty(slot?.team_slug, slot?.team));
+      if (VALID_TEAM_SLUGS.includes(slotTeam)) return slotTeam;
+    }
+
+    const territory = normalizeTerritory(getTerritory(row, addressMap, slotMap));
+    for (const [team, territories] of Object.entries(TEAM_TERRITORIES)) {
+      if (territories.map(normalizeTerritory).includes(territory)) return team;
+    }
+    return '';
+  }
+
+  function teamRow(row, addressMap = null, slotMap = null) {
+    const rowTeam = getTeamSlug(row, addressMap, slotMap);
+    if (rowTeam) return rowTeam === PAGE_TEAM;
+    const territory = normalizeTerritory(getTerritory(row, addressMap, slotMap));
+    const allowed = allowedTerritoryKeysForTeam(PAGE_TEAM);
+    return territory ? allowed.includes(territory) : true;
+  }
+
+  function buildAddressMap(rows = state.addresses) {
+    const map = new Map();
+    rows.forEach(row => {
+      [
+        'id',
+        'address_id',
+        'location_id',
+        'zito_location_id',
+        'external_id',
+        'external_location_id',
+        'partner_location_id',
+        'zml_partner_location_id',
+        'zml_location_id',
+        'location_external_id'
+      ].forEach(field => {
+        const key = idKey(row?.[field]);
+        if (key && !map.has(key)) map.set(key, row);
+      });
+    });
+    return map;
+  }
+
+  function getLinkedAddress(row, addressMap) {
+    if (!row || !addressMap) return null;
+    const keys = [
+      row.address_id,
+      row.location_id,
+      row.zito_location_id,
+      row.external_id,
+      row.external_location_id,
+      row.partner_location_id,
+      row.zml_partner_location_id,
+      row.zml_location_id,
+      row.location_external_id
+    ].map(idKey).filter(Boolean);
+    for (const key of keys) {
+      if (addressMap.has(key)) return addressMap.get(key);
+    }
+    return null;
+  }
+
+  function getTerritory(row, addressMap = null, slotMap = null) {
+    const direct = firstNonEmpty(row?.territory, row?.market, row?.territory_name, row?.assigned_territory);
+    if (direct) return direct;
+    if (slotMap) {
+      const slot = slotMap.get(idKey(row?.schedule_slot_id)) || slotMap.get(idKey(row?.slot_id));
+      if (slot?.territory) return slot.territory;
+    }
+    const linked = getLinkedAddress(row, addressMap);
+    return linked?.territory || '';
+  }
+
+  function addressFromRow(row) {
+    if (!row) return '';
+    return [
+      firstNonEmpty(row.address1, row.address, row.street_address, row.service_address),
+      row.city,
+      row.state,
+      row.zip || row.postal || row.postal_code
+    ].filter(Boolean).join(', ');
+  }
+
+  function buildAddressLabel(row, addressMap) {
+    const linked = getLinkedAddress(row, addressMap);
+    if (linked) return addressFromRow(linked) || '—';
+    return [
+      firstNonEmpty(row?.address1, row?.address, row?.street_address, row?.service_address),
+      row?.city,
+      row?.state,
+      row?.zip || row?.postal || row?.postal_code
+    ].filter(Boolean).join(', ') || '—';
+  }
+
+  function getRepName(row) {
+    return String(firstNonEmpty(row?.rep_name, row?.salesperson, row?.sales_rep, row?.rep, row?.full_name, row?.created_by_name)).trim();
+  }
+
+  function getCustomerName(row) {
+    return String(firstNonEmpty(
+      row?.customer_name,
+      [row?.first_name, row?.last_name].filter(Boolean).join(' '),
+      [row?.customer_first_name, row?.customer_last_name].filter(Boolean).join(' '),
+      row?.name
+    )).trim();
+  }
+
+  function getPackageName(row) {
+    const direct = firstNonEmpty(row?.package_name, row?.package, row?.plan_name, row?.selected_package, row?.internet_package, row?.product);
+    if (direct) return direct;
+    const status = String(row?.status || '').toLowerCase().trim();
+    return ['mega','gig'].includes(status) ? status : '';
+  }
+
+  function parseSnapshot(row) {
+    const raw = row?.offer_snapshot || row?.offer_snapshot_json;
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    try { return JSON.parse(String(raw)); } catch (err) { return null; }
+  }
+
+  function snapshotValue(snapshot, key, fallback = '') {
+    return firstNonEmpty(snapshot && snapshot[key], fallback);
+  }
+
+  function lifecycle(row) {
+    const review = String(firstNonEmpty(row.review_status, row.admin_status, row.processing_status, 'submitted')).toLowerCase().trim();
+    const outcome = String(firstNonEmpty(row.install_outcome, row.install_status, '')).toLowerCase().trim();
+    const invoice = firstNonEmpty(row.invoice_id, row.invoice_batch_id, row.invoiced_at);
+    if (['canceled','cancelled','rejected','void','voided'].includes(review) || ['canceled','cancelled','void','voided'].includes(outcome)) return { key: 'canceled', label: 'Canceled', cls: 'bad' };
+    if (invoice) return { key: 'invoiced', label: 'Invoiced', cls: 'info' };
+    if (['installed','complete','completed'].includes(outcome) || review === 'installed') return { key: 'installed', label: 'Installed', cls: 'good' };
+    if (['needs_rescheduled','reschedule','rescheduled'].includes(review) || ['needs_rescheduled','reschedule','rescheduled'].includes(outcome)) return { key: 'needs_rescheduled', label: 'Needs Rescheduled', cls: 'warn' };
+    if (firstNonEmpty(row.entered_in_zip_at, row.zip_entered_at) || review === 'entered_in_zip') return { key: 'entered_in_zip', label: 'Entered into ZIP', cls: 'info' };
+    if (review === 'needs_review') return { key: 'needs_review', label: 'Needs Review', cls: 'warn' };
+    return { key: 'submitted', label: 'Submitted', cls: '' };
+  }
+
+  async function resolveAccess(force = false) {
+    if (dashboardAccess.resolved && !force) return dashboardAccess;
+    const { data: sessionData } = await supabaseClient.auth.getSession();
+    const user = sessionData?.session?.user || null;
+    const email = String(user?.email || '').trim().toLowerCase();
+    const userId = user?.id || '';
+
+    let isCompanyAdmin = false;
+    let allowedTeams = [];
+
+    try {
+      const { data, error } = await supabaseClient.rpc('fieldos_dashboard_access');
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!error && row) {
+        isCompanyAdmin = row.is_company_admin === true;
+        allowedTeams = normalizeAllowedTeams(row.allowed_teams || row.allowed_team || row.team_slug || row.team);
+      }
+    } catch (err) {
+      console.warn('fieldos_dashboard_access unavailable; using dashboard_users fallback.', err);
+    }
+
+    if (!isCompanyAdmin && allowedTeams.length === 0) {
+      try {
+        let rows = [];
+        if (userId) {
+          const byUser = await supabaseClient.from('dashboard_users').select('user_id,email,team,is_company_admin').eq('user_id', userId).limit(20);
+          if (!byUser.error && Array.isArray(byUser.data)) rows = byUser.data;
+        }
+        if (rows.length === 0 && email) {
+          const byEmail = await supabaseClient.from('dashboard_users').select('user_id,email,team,is_company_admin').ilike('email', email).limit(20);
+          if (!byEmail.error && Array.isArray(byEmail.data)) rows = byEmail.data;
+        }
+        rows.forEach(row => {
+          const team = normalizeTeamSlug(row.team);
+          if (row.is_company_admin === true || team === 'all') isCompanyAdmin = true;
+          else if (VALID_TEAM_SLUGS.includes(team)) allowedTeams.push(team);
+        });
+      } catch (err) {
+        console.warn('dashboard_users fallback failed', err);
+      }
+    }
+
+    allowedTeams = [...new Set(allowedTeams.filter(t => VALID_TEAM_SLUGS.includes(t)))];
+    if (isCompanyAdmin) allowedTeams = [...VALID_TEAM_SLUGS];
+
+    dashboardAccess = { resolved: true, email, isCompanyAdmin, allowedTeams };
+    return dashboardAccess;
+  }
+
+  function normalizeAllowedTeams(input) {
+    const out = [];
+    const items = Array.isArray(input) ? input : [input];
+    items.forEach(item => {
+      if (Array.isArray(item)) {
+        item.forEach(inner => {
+          const team = normalizeTeamSlug(inner);
+          if (VALID_TEAM_SLUGS.includes(team) && !out.includes(team)) out.push(team);
+        });
+        return;
+      }
+      String(item || '').split(',').forEach(part => {
+        const team = normalizeTeamSlug(part);
+        if (VALID_TEAM_SLUGS.includes(team) && !out.includes(team)) out.push(team);
+      });
+    });
+    return out;
+  }
+
+  function userCanViewPageTeam() {
+    return dashboardAccess.isCompanyAdmin || (dashboardAccess.allowedTeams || []).includes(PAGE_TEAM);
+  }
+
+  function showAuth(message) {
+    els.authScreen.classList.remove('hidden');
+    els.dashboardShell.classList.add('hidden');
+    els.authStatus.textContent = message || 'Please sign in.';
+    if (refreshTimer) clearInterval(refreshTimer);
+  }
+
+  function showDashboard(session) {
+    els.authScreen.classList.add('hidden');
+    els.dashboardShell.classList.remove('hidden');
+    const email = String(session?.user?.email || '').trim().toLowerCase();
+    els.sessionEmail.textContent = email || 'Signed in';
+    els.teamPill.textContent = teamLabel();
+    els.dashboardTitle.textContent = teamLabel() + ' Dashboard';
+    els.authTitle.textContent = teamLabel() + ' Dashboard Login';
+    els.lockedNotice.textContent = 'This page is locked to ' + teamLabel() + '. There is no company selector, and company admin tools are not loaded here.';
+  }
+
+  async function signIn() {
+    const email = els.loginEmail.value.trim();
+    const password = els.loginPassword.value;
+    if (!email || !password) {
+      els.authStatus.textContent = 'Enter email and password.';
+      return;
+    }
+    els.authStatus.textContent = 'Signing in...';
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      els.authStatus.textContent = error.message || 'Could not sign in.';
+      return;
+    }
+    await boot();
+  }
+
+  async function signOut() {
+    await supabaseClient.auth.signOut();
+    state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [] };
+    showAuth('Signed out.');
+  }
+
+  async function fetchAllPages(table, opts = {}) {
+    const pageSize = Number(opts.pageSize || 1000);
+    const maxRecords = Number(opts.maxRecords || 0);
+    let from = 0;
+    let rows = [];
+
+    while (true) {
+      let query = supabaseClient.from(table).select(opts.select || '*').range(from, from + pageSize - 1);
+      if (opts.order) query = query.order(opts.order.column, { ascending: opts.order.ascending !== false });
+      (opts.filters || []).forEach(f => {
+        if (f.type === 'eq') query = query.eq(f.column, f.value);
+        if (f.type === 'gte') query = query.gte(f.column, f.value);
+        if (f.type === 'lte') query = query.lte(f.column, f.value);
+        if (f.type === 'in') query = query.in(f.column, f.value);
+      });
+      const { data, error } = await query;
+      if (error) throw new Error(table + ': ' + (error.message || 'Request failed'));
+      const page = data || [];
+      rows = rows.concat(page);
+      if (maxRecords && rows.length >= maxRecords) return rows.slice(0, maxRecords);
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+    return rows;
+  }
+
+  async function fetchOptional(table, opts = {}) {
+    try { return await fetchAllPages(table, opts); }
+    catch (err) {
+      console.warn(table + ' optional load failed', err);
+      return [];
+    }
+  }
+
+  function filters() {
+    return {
+      territory: els.territory.value || 'all',
+      rep: els.rep.value || 'all',
+      status: els.status.value || 'all',
+      start: els.start.value,
+      end: els.end.value,
+      search: (els.search.value || '').toLowerCase().trim()
+    };
+  }
+
+  async function loadData() {
+    if (loading) return;
+    loading = true;
+    try {
+      const { data: authData } = await supabaseClient.auth.getSession();
+      if (!authData.session) {
+        showAuth('Your session expired. Please sign in again.');
+        return;
+      }
+
+      await resolveAccess(true);
+      if (!userCanViewPageTeam()) {
+        showAuth('Access denied. This login is not assigned to ' + teamLabel() + '.');
+        return;
+      }
+
+      showDashboard(authData.session);
+      setDefaultDates();
+
+      const f = filters();
+      els.statusLine.classList.remove('error');
+      els.statusLine.textContent = 'Loading ' + teamLabel() + ' data...';
+
+      const teamTerritories = allowedTerritoryKeysForTeam(PAGE_TEAM);
+      const addressFilters = [
+        { type: 'eq', column: 'team_slug', value: PAGE_TEAM }
+      ];
+      const repFilters = [
+        { type: 'eq', column: 'team_slug', value: PAGE_TEAM }
+      ];
+      const eventFilters = [];
+      const salesFilters = [];
+      const slotFilters = [
+        { type: 'eq', column: 'team_slug', value: PAGE_TEAM }
+      ];
+      const bookingFilters = [];
+
+      // Keep date filtering, but do not rely only on team_slug for sales/orders.
+      // RLS should still be the hard security boundary for team users.
+      if (f.start) {
+        eventFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+        salesFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+        bookingFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+      }
+      if (f.end) {
+        eventFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+        salesFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+        bookingFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+      }
+
+      const [addresses, reps, addressEvents, salesOrders, slots, bookings] = await Promise.all([
+        fetchOptional('addresses', { order: { column: 'address1', ascending: true }, filters: addressFilters, maxRecords: 20000 }),
+        fetchOptional('reps', { order: { column: 'full_name', ascending: true }, filters: repFilters }),
+        fetchOptional('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters, maxRecords: 10000 }),
+        fetchOptional('sales_orders', { order: { column: 'created_at', ascending: false }, filters: salesFilters, maxRecords: 5000 }),
+        fetchOptional('schedule_slots', { order: { column: 'slot_date', ascending: true }, filters: slotFilters, maxRecords: 5000 }),
+        fetchOptional('schedule_bookings', { order: { column: 'created_at', ascending: false }, filters: bookingFilters, maxRecords: 5000 })
+      ]);
+
+      const addressMapAll = buildAddressMap(addresses);
+      const slotMapAll = new Map(slots.map(s => [idKey(s.id), s]));
+
+      state = {
+        addresses: addresses.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        reps: reps.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        address_events: addressEvents.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        sales_orders: salesOrders.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        schedule_slots: slots.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        schedule_bookings: bookings.filter(r => teamRow(r, addressMapAll, slotMapAll))
+      };
+
+      populateFilters();
+      renderAll();
+
+      els.statusLine.textContent = teamLabel() + ' loaded. ' + renderedState.sales.length + ' visible sale(s). Last refresh: ' + new Date().toLocaleTimeString();
+    } catch (err) {
+      console.error(err);
+      els.statusLine.textContent = err.message || 'Could not load team dashboard data.';
+      els.statusLine.classList.add('error');
+    } finally {
+      loading = false;
+    }
+  }
+
+  function populateFilters() {
+    const currentTerritory = els.territory.value || 'all';
+    const currentRep = els.rep.value || 'all';
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+
+    const territories = [...new Set([
+      ...state.addresses.map(r => r.territory),
+      ...state.sales_orders.map(r => getTerritory(r, addressMap, slotMap)),
+      ...state.address_events.map(r => getTerritory(r, addressMap, slotMap)),
+      ...state.schedule_slots.map(r => r.territory)
+    ].filter(Boolean))].sort((a,b) => normalizeTerritory(a).localeCompare(normalizeTerritory(b)));
+
+    const reps = [...new Set([
+      ...state.reps.map(r => getRepName(r)),
+      ...state.sales_orders.map(r => getRepName(r)),
+      ...state.address_events.map(r => getRepName(r)),
+      ...state.schedule_bookings.map(r => getRepName(r))
+    ].filter(Boolean))].sort();
+
+    els.territory.innerHTML = '<option value="all">All Territories</option>' + territories.map(t => '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>').join('');
+    els.rep.innerHTML = '<option value="all">All Reps</option>' + reps.map(r => '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + '</option>').join('');
+
+    els.territory.value = territories.some(t => normalizeTerritory(t) === normalizeTerritory(currentTerritory)) ? currentTerritory : 'all';
+    els.rep.value = reps.includes(currentRep) ? currentRep : 'all';
+  }
+
+  function rowMatchesUi(row, addressMap, slotMap) {
+    const f = filters();
+    if (f.territory !== 'all' && normalizeTerritory(getTerritory(row, addressMap, slotMap)) !== normalizeTerritory(f.territory)) return false;
+    if (f.rep !== 'all' && getRepName(row) !== f.rep) return false;
+    return true;
+  }
+
+  function saleRecords() {
+    const f = filters();
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    return state.sales_orders
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .map(row => {
+        const snapshot = parseSnapshot(row);
+        const lc = lifecycle(row);
+        const installDate = firstNonEmpty(row.install_date, row.preferred_install_date, row.appointment_date);
+        const installTime = firstNonEmpty(row.install_time, row.install_slot, row.preferred_install_time, row.appointment_time);
+        const promo = firstNonEmpty(row.promo_price, snapshotValue(snapshot, 'promo_display', ''), snapshotValue(snapshot, 'offer_title', ''));
+        const monthly = firstNonEmpty(row.monthly_total, snapshotValue(snapshot, 'month_one_total', ''));
+        return {
+          raw: row,
+          id: row.id || '',
+          created_at: row.created_at,
+          lifecycle_key: lc.key,
+          lifecycle_label: lc.label,
+          lifecycle_cls: lc.cls,
+          rep_name: getRepName(row) || '—',
+          territory: getTerritory(row, addressMap, slotMap) || '—',
+          customer_name: getCustomerName(row) || '—',
+          phone: firstNonEmpty(row.phone, row.customer_phone, row.mobile, row.cell_phone),
+          email: firstNonEmpty(row.email, row.customer_email),
+          address: buildAddressLabel(row, addressMap),
+          package_name: getPackageName(row) || '—',
+          offer_promo: promo || '',
+          monthly_total: money(monthly) || monthly || '',
+          install: [formatDate(installDate), installTime].filter(Boolean).join(' '),
+          notes: firstNonEmpty(row.notes, row.note, row.work_order_note, row.comments, row.install_outcome_note)
+        };
+      })
+      .filter(r => f.status === 'all' || r.lifecycle_key === f.status)
+      .filter(r => !f.search || Object.values(r).join(' ').toLowerCase().includes(f.search))
+      .sort((a,b) => timeValue(b.created_at) - timeValue(a.created_at));
+  }
+
+  function activityRecords() {
+    const f = filters();
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    const sales = renderedState.sales.map(s => ({
+      time: s.created_at,
+      type: 'Sale',
+      rep: s.rep_name,
+      territory: s.territory,
+      subject: s.customer_name + ' • ' + s.address,
+      status: s.lifecycle_label,
+      note: s.package_name
+    }));
+    const events = state.address_events
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .map(row => ({
+        time: row.created_at,
+        type: 'Disposition',
+        rep: getRepName(row) || '—',
+        territory: getTerritory(row, addressMap, slotMap) || '—',
+        subject: buildAddressLabel(row, addressMap),
+        status: row.status || '—',
+        note: firstNonEmpty(row.note, row.notes)
+      }));
+    const bookings = state.schedule_bookings
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .map(row => {
+        const slot = slotMap.get(idKey(row.schedule_slot_id)) || slotMap.get(idKey(row.slot_id)) || {};
+        return {
+          time: row.created_at,
+          type: 'Booking',
+          rep: getRepName(row) || '—',
+          territory: getTerritory(row, addressMap, slotMap) || '—',
+          subject: buildAddressLabel(row, addressMap),
+          status: [slot.slot_date || row.slot_date || row.install_date, slot.time_label || row.time_label || row.install_time].filter(Boolean).join(' '),
+          note: firstNonEmpty(row.note, row.notes)
+        };
+      });
+    return [...sales, ...events, ...bookings]
+      .filter(r => !f.search || Object.values(r).join(' ').toLowerCase().includes(f.search))
+      .sort((a,b) => timeValue(b.time) - timeValue(a.time))
+      .slice(0,150);
+  }
+
+  function repRecords() {
+    const reps = new Map();
+    const ensure = name => {
+      const key = name || '—';
+      if (!reps.has(key)) reps.set(key, { rep: key, territories: new Set(), sales: 0, worked: 0, latest: '' });
+      return reps.get(key);
+    };
+
+    renderedState.sales.forEach(s => {
+      const rec = ensure(s.rep_name);
+      rec.sales++;
+      if (s.territory && s.territory !== '—') rec.territories.add(s.territory);
+      if (!rec.latest || timeValue(s.created_at) > timeValue(rec.latest)) rec.latest = s.created_at;
+    });
+
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    state.address_events.forEach(ev => {
+      const name = getRepName(ev);
+      if (!name) return;
+      const rec = ensure(name);
+      rec.worked++;
+      const territory = getTerritory(ev, addressMap, slotMap);
+      if (territory) rec.territories.add(territory);
+      if (!rec.latest || timeValue(ev.created_at) > timeValue(rec.latest)) rec.latest = ev.created_at;
+    });
+
+    return Array.from(reps.values())
+      .map(r => ({
+        rep: r.rep,
+        territories: Array.from(r.territories).join(', '),
+        sales: r.sales,
+        worked: r.worked,
+        close_rate: r.worked ? (r.sales / r.worked) : 0,
+        latest: r.latest
+      }))
+      .sort((a,b) => b.sales - a.sales || b.worked - a.worked || a.rep.localeCompare(b.rep));
+  }
+
+  function renderAll() {
+    renderedState.sales = saleRecords();
+    renderedState.activity = activityRecords();
+    renderedState.reps = repRecords();
+
+    const today = todayIso();
+    const installed = renderedState.sales.filter(s => s.lifecycle_key === 'installed').length;
+    const rescheduled = renderedState.sales.filter(s => s.lifecycle_key === 'needs_rescheduled').length;
+    const invoiced = renderedState.sales.filter(s => s.lifecycle_key === 'invoiced').length;
+    const todaySales = renderedState.sales.filter(s => String(s.created_at || '').slice(0,10) === today).length;
+    const worked = renderedState.reps.reduce((sum, r) => sum + Number(r.worked || 0), 0);
+    const close = worked ? renderedState.sales.length / worked : 0;
+
+    setText('kpi-sales', renderedState.sales.length);
+    setText('kpi-today', todaySales);
+    setText('kpi-installed', installed);
+    setText('kpi-rescheduled', rescheduled);
+    setText('kpi-invoiced', invoiced);
+    setText('kpi-close-rate', (close * 100).toFixed(1) + '%');
+
+    renderStatusSummary();
+    renderTerritorySummary();
+    renderSalesTable();
+    renderActivityTable();
+    renderRepTable();
+  }
+
+  function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  }
+
+  function renderStatusSummary() {
+    const counts = {};
+    renderedState.sales.forEach(s => {
+      counts[s.lifecycle_key] = counts[s.lifecycle_key] || { label: s.lifecycle_label, cls: s.lifecycle_cls, count: 0 };
+      counts[s.lifecycle_key].count++;
+    });
+    const rows = Object.values(counts).sort((a,b) => b.count - a.count);
+    els.statusSummaryList.innerHTML = rows.length ? rows.map(r => `
+      <div class="list-item">
+        <div><div class="list-title">${escapeHtml(r.label)}</div><div class="list-sub">Visible sales in this lifecycle status.</div></div>
+        <span class="badge ${escapeHtml(r.cls)}">${r.count}</span>
+      </div>
+    `).join('') : '<div class="notice warn">No sales found for the current filters.</div>';
+  }
+
+  function renderTerritorySummary() {
+    const map = new Map();
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+
+    state.address_events.forEach(ev => {
+      if (!rowMatchesUi(ev, addressMap, slotMap)) return;
+      const territory = getTerritory(ev, addressMap, slotMap) || 'Unknown';
+      const key = normalizeTerritory(territory);
+      if (!map.has(key)) map.set(key, { territory, sales: 0, worked: 0 });
+      map.get(key).worked++;
+    });
+
+    renderedState.sales.forEach(s => {
+      const territory = s.territory || 'Unknown';
+      const key = normalizeTerritory(territory);
+      if (!map.has(key)) map.set(key, { territory, sales: 0, worked: 0 });
+      map.get(key).sales++;
+    });
+
+    const rows = Array.from(map.values()).sort((a,b) => b.sales - a.sales || b.worked - a.worked || a.territory.localeCompare(b.territory));
+    els.territorySummaryList.innerHTML = rows.length ? rows.map(r => `
+      <div class="list-item">
+        <div><div class="list-title">${escapeHtml(r.territory)}</div><div class="list-sub">${r.worked} worked door(s)</div></div>
+        <span class="badge good">${r.sales} sale(s)</span>
+      </div>
+    `).join('') : '<div class="notice warn">No territory activity found for the current filters.</div>';
+  }
+
+  function renderSalesTable() {
+    els.salesBody.innerHTML = renderedState.sales.length ? renderedState.sales.map(s => `
+      <tr>
+        <td>${escapeHtml(formatDateTime(s.created_at))}</td>
+        <td><span class="badge ${escapeHtml(s.lifecycle_cls)}">${escapeHtml(s.lifecycle_label)}</span></td>
+        <td>${escapeHtml(s.rep_name)}</td>
+        <td>${escapeHtml(s.territory)}</td>
+        <td><div class="strong">${escapeHtml(s.customer_name)}</div></td>
+        <td>${escapeHtml([s.phone, s.email].filter(Boolean).join(' / '))}</td>
+        <td>${escapeHtml(s.address)}</td>
+        <td>${escapeHtml(s.package_name)}</td>
+        <td>${escapeHtml([s.offer_promo, s.monthly_total].filter(Boolean).join(' • '))}</td>
+        <td>${escapeHtml(s.install)}</td>
+        <td>${escapeHtml(s.notes)}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="11">No sales found for the current filters.</td></tr>';
+  }
+
+  function renderActivityTable() {
+    els.activityBody.innerHTML = renderedState.activity.length ? renderedState.activity.map(r => `
+      <tr>
+        <td>${escapeHtml(formatDateTime(r.time))}</td>
+        <td>${escapeHtml(r.type)}</td>
+        <td>${escapeHtml(r.rep)}</td>
+        <td>${escapeHtml(r.territory)}</td>
+        <td>${escapeHtml(r.subject)}</td>
+        <td>${escapeHtml(r.status)}</td>
+        <td>${escapeHtml(r.note)}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="7">No recent activity found for the current filters.</td></tr>';
+  }
+
+  function renderRepTable() {
+    els.repBody.innerHTML = renderedState.reps.length ? renderedState.reps.map(r => `
+      <tr>
+        <td><div class="strong">${escapeHtml(r.rep)}</div></td>
+        <td>${escapeHtml(r.territories || '—')}</td>
+        <td>${r.sales}</td>
+        <td>${r.worked}</td>
+        <td>${(r.close_rate * 100).toFixed(1)}%</td>
+        <td>${escapeHtml(formatDateTime(r.latest))}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="6">No rep activity found for the current filters.</td></tr>';
+  }
+
+  function csvDownload(filename, rows) {
+    if (!rows || !rows.length) {
+      els.statusLine.textContent = 'No rows available to export.';
+      return;
+    }
+    const headers = Object.keys(rows[0]).filter(h => h !== 'raw');
+    const lines = [headers.join(',')];
+    rows.forEach(row => {
+      const vals = headers.map(h => {
+        const v = String(row[h] ?? '');
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      });
+      lines.push(vals.join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === 'tab-' + tabName));
+  }
+
+  async function boot() {
+    const { data } = await supabaseClient.auth.getSession();
+    if (!data.session) {
+      showAuth('Please sign in.');
+      return;
+    }
+    await resolveAccess(true);
+    if (!userCanViewPageTeam()) {
+      showAuth('Access denied. This login is not assigned to ' + teamLabel() + '.');
+      return;
+    }
+    showDashboard(data.session);
+    await loadData();
+  }
+
+  // Event bindings
+  els.loginBtn.addEventListener('click', signIn);
+  els.loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
+  els.logoutBtn.addEventListener('click', signOut);
+  els.refresh.addEventListener('click', loadData);
+  [els.territory, els.rep, els.status].forEach(el => el.addEventListener('change', renderAll));
+  [els.search].forEach(el => el.addEventListener('input', renderAll));
+  [els.start, els.end].forEach(el => el.addEventListener('change', loadData));
+  els.autoRefresh.addEventListener('change', () => {
+    if (refreshTimer) clearInterval(refreshTimer);
+    const ms = Number(els.autoRefresh.value || 0);
+    if (ms) refreshTimer = setInterval(loadData, ms);
+  });
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+  els.exportSales.addEventListener('click', () => csvDownload(PAGE_TEAM + '_visible_sales.csv', renderedState.sales));
+  els.exportActivity.addEventListener('click', () => csvDownload(PAGE_TEAM + '_recent_activity.csv', renderedState.activity));
+  els.exportReps.addEventListener('click', () => csvDownload(PAGE_TEAM + '_rep_summary.csv', renderedState.reps));
+
+  els.teamPill.textContent = teamLabel();
+  els.authTitle.textContent = teamLabel() + ' Dashboard Login';
+  els.authSubtitle.textContent = 'Sign in to view the locked ' + teamLabel() + ' sales dashboard.';
+  setDefaultDates();
+  boot();
+})();
+</script>
+</body>
+</html>
