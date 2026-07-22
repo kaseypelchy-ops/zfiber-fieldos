@@ -240,6 +240,10 @@
 
     @media (max-width: 1200px) { .controls, .grid-kpis, .pricing-summary, .admin-tools-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .grid-2, .route-grid { grid-template-columns: 1fr; } .route-meta, .route-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 700px) { .controls, .grid-kpis, .pricing-summary, .admin-tools-grid, .admin-search-row, .admin-form-grid { grid-template-columns: 1fr; } body { padding: 12px; } .kpi-value { font-size: 28px; } }
+  
+    .admin-tag.credit { background: rgba(14,165,233,.14); color: #bae6fd; border-color: rgba(14,165,233,.32); }
+    .inline-admin-btn.credit { background: rgba(14,165,233,.14) !important; color: #bae6fd !important; border-color: rgba(14,165,233,.32) !important; }
+
   </style>
 </head>
 <body>
@@ -477,6 +481,7 @@
           <div class="admin-tool-card"><div class="admin-tool-label">Entered in ZiP</div><div id="admin-kpi-sales-entered" class="admin-tool-value">0</div><div class="admin-tool-sub">Sales marked entered and waiting for install outcome.</div></div>
           <div class="admin-tool-card"><div class="admin-tool-label">Ready to Invoice</div><div id="admin-kpi-sales-ready-invoice" class="admin-tool-value">0</div><div class="admin-tool-sub">Installed sales not yet assigned an invoice ID.</div></div>
           <div class="admin-tool-card"><div class="admin-tool-label">Invoiced</div><div id="admin-kpi-sales-invoiced" class="admin-tool-value">0</div><div class="admin-tool-sub">Sales already exported with an invoice ID.</div></div>
+          <div class="admin-tool-card"><div class="admin-tool-label">Pending Clawbacks</div><div id="admin-kpi-sales-clawbacks" class="admin-tool-value">0</div><div class="admin-tool-sub">Credits waiting to be included on a vendor invoice.</div></div>
         </div>
         <div class="panel sales-review-panel">
           <div class="panel-head">
@@ -494,6 +499,8 @@
                 <option value="needs_rescheduled">Needs rescheduled</option>
                 <option value="all">All sales — newest install first</option>
                 <option value="invoiced">Invoiced</option>
+                <option value="clawback_eligible">Clawback eligible</option>
+                <option value="clawback_pending">Pending clawback credits</option>
                 <option value="canceled">Canceled</option>
                 <option value="rejected">Rejected</option>
               </select>
@@ -504,6 +511,7 @@
                 <option value="all_history">All history</option>
               </select>
               <button id="admin-invoice-installed-sales" class="primary">Invoice Installed Sales</button>
+              <button id="admin-export-clawback-credits" class="credit" type="button">Export Clawback Credits</button>
               <button id="admin-export-sales-review">Export Review Queue</button>
             </div>
           </div>
@@ -1008,7 +1016,7 @@
       modal: document.getElementById('detail-modal'), detailTitle: document.getElementById('detail-title'), detailHead: document.getElementById('detail-head'), detailBody: document.getElementById('detail-body'), detailClose: document.getElementById('detail-close'), detailExport: document.getElementById('detail-export'), dashboardTitle: document.getElementById('dashboard-title'), dashboardSubtitle: document.getElementById('dashboard-subtitle')
     };
 
-    let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], fieldos_pricing_offers: [] };
+    let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], sales_order_clawbacks: [], fieldos_pricing_offers: [] };
     let currentDetailRecords = [];
     let pendingSalesReviewUpdates = new Map();
     let territoryChart, dispositionChart, salesTrendChart, refreshTimer;
@@ -1016,7 +1024,7 @@
     let routeReplayPoints = [];
     let routeReplayIndex = 0;
     let cachedFilteredEvents = [];
-    let loadedCounts = { addresses: 0, reps: 0, address_events: 0, sales_orders: 0, schedule_slots: 0, schedule_bookings: 0, fieldos_pricing_offers: 0 };
+    let loadedCounts = { addresses: 0, reps: 0, address_events: 0, sales_orders: 0, schedule_slots: 0, schedule_bookings: 0, sales_order_clawbacks: 0, fieldos_pricing_offers: 0 };
 
     function setDashboardHeader() {
       els.dashboardTitle.textContent = 'Company Admin Dashboard';
@@ -1529,7 +1537,7 @@
       if (!canUseAllTeams() && !selectedTeamForQueryBeforeLoad) {
         els.status.textContent = 'Access denied: this login is not approved for a FieldOS dashboard. Ask the company admin to assign dashboard access.';
         els.status.classList.add('error');
-        state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], fieldos_pricing_offers: [] };
+        state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], sales_order_clawbacks: [], fieldos_pricing_offers: [] };
         renderAll();
         return;
       }
@@ -1547,6 +1555,7 @@
         const salesFilters = [];
         const slotFilters = [];
         const bookingFilters = [];
+        const clawbackFilters = [];
 
         if (selectedTeamForQuery !== 'all') {
           addressFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeamForQuery });
@@ -1555,6 +1564,7 @@
           salesFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeamForQuery });
           slotFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeamForQuery });
           bookingFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeamForQuery });
+          clawbackFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeamForQuery });
         }
 
         if (filters.start) {
@@ -1568,13 +1578,14 @@
           bookingFilters.push({ type: 'lte', column: 'created_at', value: filters.end + 'T23:59:59' });
         }
 
-        const [addresses, reps, address_events, sales_orders, schedule_slots, schedule_bookings, fieldos_pricing_offers] = await Promise.all([
+        const [addresses, reps, address_events, sales_orders, schedule_slots, schedule_bookings, sales_order_clawbacks, fieldos_pricing_offers] = await Promise.all([
           fetchAllPages('addresses', { order: { column: 'address1', ascending: true }, filters: addressFilters }),
           fetchAllPages('reps', { order: { column: 'full_name', ascending: true }, filters: repFilters }),
           fetchAllPages('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters }),
           fetchAllPages('sales_orders', { order: { column: 'created_at', ascending: false }, filters: salesFilters }),
           fetchAllPages('schedule_slots', { order: { column: 'slot_date', ascending: true }, filters: slotFilters }),
           fetchAllPages('schedule_bookings', { order: { column: 'created_at', ascending: false }, filters: bookingFilters }),
+          fetchOptionalAllPages('sales_order_clawbacks', { order: { column: 'created_at', ascending: false }, filters: clawbackFilters }),
           fetchOptionalAllPages('fieldos_pricing_offers', { order: { column: 'priority', ascending: true } })
         ]);
 
@@ -1585,6 +1596,7 @@
           sales_orders: sales_orders.length,
           schedule_slots: schedule_slots.length,
           schedule_bookings: schedule_bookings.length,
+          sales_order_clawbacks: sales_order_clawbacks.length,
           fieldos_pricing_offers: fieldos_pricing_offers.length
         };
 
@@ -1602,6 +1614,7 @@
           sales_orders: sales_orders.filter(row => rowMatchesTeam(row, teamAddressMap, teamSlotMap)),
           schedule_slots: teamSlots,
           schedule_bookings: schedule_bookings.filter(row => rowMatchesTeam(row, teamAddressMap, teamSlotMap)),
+          sales_order_clawbacks: (sales_order_clawbacks || []).filter(row => rowMatchesTeam(row, teamAddressMap, teamSlotMap)),
           fieldos_pricing_offers: fieldos_pricing_offers.filter(pricingOfferMatchesTeam)
         };
 
@@ -3047,6 +3060,7 @@
       adminSalesReviewDateScope: document.getElementById('admin-sales-review-date-scope'),
       adminExportSalesReview: document.getElementById('admin-export-sales-review'),
       adminInvoiceInstalledSales: document.getElementById('admin-invoice-installed-sales'),
+      adminExportClawbackCredits: document.getElementById('admin-export-clawback-credits'),
       adminInvoiceStatus: document.getElementById('admin-invoice-status'),
       adminRepsBody: document.getElementById('admin-reps-body'),
       adminRepSearch: document.getElementById('admin-rep-search'),
@@ -4037,6 +4051,8 @@
         if (filter === 'needs_review') return !r.review_status || ['submitted','needs_review'].includes(r.review_status);
         if (filter === 'installed_ready') return isInvoiceEligibleSale(r);
         if (filter === 'invoiced') return !!r.invoice_id || r.review_status === 'invoiced';
+        if (filter === 'clawback_eligible') return isClawbackEligibleSale(r);
+        if (filter === 'clawback_pending') return !!activeClawbackForSale(r.raw_id || r.raw?.id) && clawbackStatusForSale(r.raw_id || r.raw?.id) === 'pending_credit';
         if (filter === 'needs_rescheduled') return r.install_outcome === 'needs_rescheduled' || r.install_outcome === 'rescheduled';
         if (filter === 'canceled') return r.install_outcome === 'canceled' || r.install_outcome === 'cancelled' || r.review_status === 'canceled' || r.review_status === 'cancelled';
         return r.review_status === filter;
@@ -4184,6 +4200,226 @@
       return true;
     }
 
+
+    function salesOrderClawbackRecords() {
+      return Array.isArray(state.sales_order_clawbacks) ? state.sales_order_clawbacks : [];
+    }
+
+    function saleInstallDateIso(row) {
+      return salesReviewInstallDateValue(row || {});
+    }
+
+    function daysBetweenIsoDates(startDate, endDate) {
+      const start = salesReviewDateMs(startDate);
+      const end = salesReviewDateMs(endDate);
+      if (!start || !end) return null;
+      return Math.floor((end - start) / 86400000);
+    }
+
+    function activeClawbackForSale(saleId) {
+      const key = idKey(saleId);
+      if (!key) return null;
+      return salesOrderClawbackRecords().find(cb => idKey(cb.sales_order_id) === key && ['pending_credit','credited'].includes(String(cb.status || '').toLowerCase().trim())) || null;
+    }
+
+    function clawbackStatusForSale(saleId) {
+      const cb = activeClawbackForSale(saleId);
+      return cb ? String(cb.status || '').toLowerCase().trim() : '';
+    }
+
+    function isSaleInvoiced(row) {
+      const raw = row?.raw || row || {};
+      return !!(saleInvoiceId(raw) || raw.invoice_batch_id || raw.invoiced_at || row?.invoice_id);
+    }
+
+    function isClawbackEligibleSale(row) {
+      row = normalizeInvoiceSaleRow(row || {});
+      const raw = row.raw || {};
+      const saleId = idKey(row.raw_id || raw.id);
+      if (!saleId) return false;
+      const installOutcome = String(row.install_outcome || '').toLowerCase().trim();
+      if (installOutcome !== 'installed') return false;
+      if (!isSaleInvoiced(row)) return false;
+      if (activeClawbackForSale(saleId)) return false;
+      const installDate = saleInstallDateIso(row);
+      if (!installDate) return false;
+      const days = daysBetweenIsoDates(installDate, localIsoDateToday());
+      return days !== null && days >= 0 && days <= 90;
+    }
+
+    function clawbackWindowLabel(row) {
+      row = normalizeInvoiceSaleRow(row || {});
+      const installDate = saleInstallDateIso(row);
+      if (!installDate) return 'No install date';
+      const days = daysBetweenIsoDates(installDate, localIsoDateToday());
+      if (days === null) return 'Check install date';
+      if (days < 0) return 'Install date is in the future';
+      if (days <= 90) return String(90 - days) + ' day(s) left in 90-day clawback window';
+      return 'Clawback window expired';
+    }
+
+    function pendingClawbacksForCurrentView() {
+      const filters = currentFilters();
+      const addressMap = buildAddressMap();
+      const saleMap = new Map((state.sales_orders || []).map(s => [idKey(s.id), s]));
+      return salesOrderClawbackRecords()
+        .filter(cb => String(cb.status || 'pending_credit').toLowerCase().trim() === 'pending_credit')
+        .map(cb => ({ ...cb, sale: saleMap.get(idKey(cb.sales_order_id)) || null }))
+        .filter(cb => {
+          const sale = cb.sale || cb;
+          return rowMatchesUiTerritory(sale, filters.territory, addressMap) && rowMatchesRep(sale, filters.rep);
+        });
+    }
+
+    function exportRecordsForClawbacks(rows, invoiceId) {
+      const addressMap = buildAddressMap();
+      const saleMap = new Map((state.sales_orders || []).map(s => [idKey(s.id), s]));
+      return (rows || []).map(cb => {
+        const sale = cb.sale || saleMap.get(idKey(cb.sales_order_id)) || {};
+        return {
+          invoice_id: invoiceId || cb.credit_invoice_id || '',
+          line_type: 'Clawback Credit',
+          credit_required: cb.credit_required === false ? 'No' : 'Yes',
+          clawback_id: cb.id || '',
+          sale_id: cb.sales_order_id || '',
+          original_invoice_id: cb.original_invoice_id || sale.invoice_id || '',
+          original_invoice_batch_id: cb.original_invoice_batch_id || sale.invoice_batch_id || '',
+          team: firstNonEmpty(sale.team, ''),
+          team_slug: cb.team_slug || sale.team_slug || '',
+          territory: cb.territory || sale.territory || '',
+          rep: getRepName(sale),
+          customer_name: cb.customer_name || getCustomerName(sale),
+          phone: sale.phone || '',
+          email: sale.email || '',
+          address: buildAddressLabel(addressMap, sale) || sale.address1 || '',
+          external_location_id: cb.external_location_id || '',
+          install_date: cb.install_date || sale.install_date || '',
+          disconnect_date: cb.disconnect_date || '',
+          days_from_install: cb.days_from_install || '',
+          clawback_reason: cb.clawback_reason || '',
+          clawback_note: cb.clawback_note || '',
+          status: cb.status || 'pending_credit'
+        };
+      });
+    }
+
+    async function createClawbackForSale(saleId) {
+      const key = idKey(saleId);
+      const sale = (state.sales_orders || []).find(s => idKey(s.id) === key);
+      if (!sale) {
+        els.status.textContent = 'Could not find that sales order in the current dashboard data.';
+        els.status.classList.add('error');
+        return false;
+      }
+      const row = normalizeInvoiceSaleRow({ raw_id: sale.id, raw: sale, install_outcome: saleInstallOutcome(sale), invoice_id: saleInvoiceId(sale) });
+      if (!isClawbackEligibleSale(row)) {
+        els.status.textContent = 'Clawback is not available for this sale. It must be installed, invoiced, within 90 days, and not already clawed back.';
+        els.status.classList.add('error');
+        return false;
+      }
+
+      const installDate = saleInstallDateIso(row);
+      const defaultDisconnectDate = localIsoDateToday();
+      const disconnectDate = prompt('Disconnect date for this clawback credit (YYYY-MM-DD):', defaultDisconnectDate);
+      if (disconnectDate === null) return false;
+      const cleanDisconnectDate = String(disconnectDate || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDisconnectDate)) {
+        els.status.textContent = 'Clawback not saved. Enter disconnect date as YYYY-MM-DD.';
+        els.status.classList.add('error');
+        return false;
+      }
+      const days = daysBetweenIsoDates(installDate, cleanDisconnectDate);
+      if (days === null || days < 0) {
+        els.status.textContent = 'Clawback not saved. Disconnect date must be on or after the install date.';
+        els.status.classList.add('error');
+        return false;
+      }
+      if (days > 90) {
+        els.status.textContent = 'Clawback not saved. This disconnect is more than 90 days after install.';
+        els.status.classList.add('error');
+        return false;
+      }
+      const reason = prompt('Reason for clawback credit:', 'Disconnected within 90 days');
+      if (reason === null) return false;
+      const note = prompt('Optional clawback note:', '') || '';
+
+      const addressMap = buildAddressMap();
+      const linkedAddress = getLinkedAddress(sale, addressMap);
+      const payload = {
+        sales_order_id: sale.id,
+        team_slug: sale.team_slug || '',
+        territory: getRowTerritory(sale, addressMap) || sale.territory || '',
+        customer_name: getCustomerName(sale) || row.customer_name || '',
+        address_id: sale.address_id || null,
+        external_location_id: firstNonEmpty(linkedAddress?.external_location_id, linkedAddress?.external_id, linkedAddress?.location_id, ''),
+        original_invoice_id: sale.invoice_id || null,
+        original_invoice_batch_id: sale.invoice_batch_id || null,
+        original_invoiced_at: sale.invoiced_at || null,
+        install_date: installDate || null,
+        disconnect_date: cleanDisconnectDate,
+        days_from_install: days,
+        clawback_reason: String(reason || 'Disconnected within 90 days').trim(),
+        clawback_note: String(note || '').trim() || null,
+        credit_required: true,
+        status: 'pending_credit',
+        created_by: await getCurrentUserEmail()
+      };
+
+      const { data: oldRecords } = await supabaseClient.from('sales_order_clawbacks').select('*').eq('sales_order_id', sale.id).in('status', ['pending_credit','credited']).limit(1);
+      if (oldRecords && oldRecords.length) {
+        els.status.textContent = 'This sale already has an active clawback record.';
+        els.status.classList.add('error');
+        await loadData();
+        return false;
+      }
+      const { error } = await supabaseClient.from('sales_order_clawbacks').insert([payload]);
+      if (error) {
+        els.status.textContent = error.message || 'Clawback could not be saved.';
+        els.status.classList.add('error');
+        return false;
+      }
+      els.status.classList.remove('error');
+      els.status.textContent = 'Clawback credit added. It will appear in pending clawback credits until exported.';
+      try { await logAdminAction('create_clawback', 'sales_order_clawbacks', sale.id, null, payload); } catch (err) { console.warn('Clawback audit log failed:', err); }
+      await loadData();
+      return true;
+    }
+
+    async function exportPendingClawbackCredits(invoiceId = '') {
+      const pending = pendingClawbacksForCurrentView();
+      if (!pending.length) {
+        const msg = 'No pending clawback credits were found in the current view.';
+        if (els.adminInvoiceStatus) els.adminInvoiceStatus.textContent = msg;
+        els.status.textContent = msg;
+        return false;
+      }
+      const creditInvoiceId = invoiceId || ('Clawback-' + new Date().toISOString().slice(0,16).replace(/[-:T]/g, ''));
+      const confirmed = window.confirm('Export ' + pending.length + ' pending clawback credit(s) and mark them credited?');
+      if (!confirmed) return false;
+      const exportRows = exportRecordsForClawbacks(pending, creditInvoiceId);
+      csvDownload('fieldos_' + creditInvoiceId.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_clawback_credits.csv', exportRows);
+      const ids = pending.map(cb => cb.id).filter(Boolean);
+      if (ids.length) {
+        const { error } = await supabaseClient.from('sales_order_clawbacks').update({
+          status: 'credited',
+          credit_invoice_id: creditInvoiceId,
+          credited_at: new Date().toISOString(),
+          credited_by: await getCurrentUserEmail()
+        }).in('id', ids);
+        if (error) {
+          els.status.textContent = error.message || 'Clawback export downloaded, but credited status update failed.';
+          els.status.classList.add('error');
+          return false;
+        }
+      }
+      try { await logAdminAction('export_clawback_credits', 'sales_order_clawbacks', creditInvoiceId, null, { credit_invoice_id: creditInvoiceId, clawback_count: pending.length, clawback_ids: ids }); } catch (err) { console.warn('Clawback export audit log failed:', err); }
+      if (els.adminInvoiceStatus) els.adminInvoiceStatus.textContent = 'Exported ' + pending.length + ' clawback credit(s) as ' + creditInvoiceId + '.';
+      els.status.classList.remove('error');
+      els.status.textContent = 'Clawback credits exported and marked credited.';
+      await loadData();
+      return true;
+    }
+
     async function createInvoiceForInstalledSales() {
       if (pendingSalesReviewUpdates.size) {
         const msg = 'Submit or clear pending Sales Review updates before creating an invoice.';
@@ -4200,7 +4436,8 @@
         return;
       }
 
-      const confirmed = window.confirm('Create one invoice for ' + eligible.length + ' installed sale(s) in the current view and export the CSV?');
+      const pendingClawbackCredits = pendingClawbacksForCurrentView();
+      const confirmed = window.confirm('Create one invoice for ' + eligible.length + ' installed sale(s)' + (pendingClawbackCredits.length ? ' and include ' + pendingClawbackCredits.length + ' pending clawback credit(s)' : '') + ' in the current view and export the CSV?');
       if (!confirmed) return;
 
       const saleIds = eligible.map(r => r.raw_id || r.raw.id).filter(Boolean);
@@ -4236,9 +4473,18 @@
       }
 
       const exportRecords = eligible.filter(r => updatedIds.includes(String(r.raw_id || r.raw.id)));
-      csvDownload('fieldos_' + invoiceId.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_installed_sales.csv', exportRecordsForInvoice(exportRecords, invoiceId));
+      const clawbackCreditRows = exportRecordsForClawbacks(pendingClawbackCredits || [], invoiceId);
+      csvDownload('fieldos_' + invoiceId.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_installed_sales.csv', [
+        ...exportRecordsForInvoice(exportRecords, invoiceId).map(row => ({ line_type: 'Installed Sale', ...row })),
+        ...clawbackCreditRows
+      ]);
+      if (pendingClawbackCredits && pendingClawbackCredits.length) {
+        const cbIds = pendingClawbackCredits.map(cb => cb.id).filter(Boolean);
+        const cbUpdate = await supabaseClient.from('sales_order_clawbacks').update({ status: 'credited', credit_invoice_id: invoiceId, credit_invoice_batch_id: batchId || null, credited_at: new Date().toISOString(), credited_by: await getCurrentUserEmail() }).in('id', cbIds);
+        if (cbUpdate.error) console.warn('Clawback credits were exported, but status update failed:', cbUpdate.error);
+      }
       await logAdminAction('create_invoice', 'fieldos_invoice_batches', batchId || invoiceId, null, { invoice_id: invoiceId, sales_count: exportRecords.length, sale_ids: updatedIds });
-      if (els.adminInvoiceStatus) els.adminInvoiceStatus.textContent = 'Created ' + invoiceId + ' with ' + exportRecords.length + ' sale(s). Already invoiced sales will be skipped in future exports.';
+      if (els.adminInvoiceStatus) els.adminInvoiceStatus.textContent = 'Created ' + invoiceId + ' with ' + exportRecords.length + ' sale(s)' + ((pendingClawbackCredits || []).length ? ' and ' + pendingClawbackCredits.length + ' clawback credit(s)' : '') + '. Already invoiced sales and credited clawbacks will be skipped in future exports.';
       await loadData();
       if (els.adminInvoiceInstalledSales) els.adminInvoiceInstalledSales.disabled = false;
     }
@@ -4249,6 +4495,7 @@
       const entered = allRecords.filter(r => r.review_status === 'entered_in_zip' && !r.invoice_id && !r.install_outcome).length;
       const readyInvoice = allRecords.filter(isInvoiceEligibleSale).length;
       const invoiced = allRecords.filter(r => !!r.invoice_id).length;
+      const pendingClawbacks = pendingClawbacksForCurrentView().length;
       const needsReview = reviewRecords.filter(r => !r.review_status || ['submitted','needs_review'].includes(r.review_status)).length;
       const missingSnapshot = reviewRecords.filter(r => !r.offer_snapshot && !r.offer_code).length;
       const missingContact = reviewRecords.filter(r => !r.phone || !r.email).length;
@@ -4256,6 +4503,7 @@
       setText('admin-kpi-sales-entered', formatNumber(entered));
       setText('admin-kpi-sales-ready-invoice', formatNumber(readyInvoice));
       setText('admin-kpi-sales-invoiced', formatNumber(invoiced));
+      setText('admin-kpi-sales-clawbacks', formatNumber(pendingClawbacks));
       setText('admin-kpi-sales-review', formatNumber(needsReview));
       setText('admin-kpi-sales-snapshot', formatNumber(missingSnapshot));
       setText('admin-kpi-sales-contact', formatNumber(missingContact));
@@ -4277,6 +4525,13 @@
         if (r.review_status === 'entered_in_zip' && !r.install_outcome && !r.invoice_id) flags.push('<span class="admin-tag info">Awaiting install outcome</span>');
         if (isInvoiceEligibleSale(r)) flags.push('<span class="admin-tag good">Ready to invoice</span>');
         if (r.invoice_id) flags.push('<span class="admin-tag good">Already invoiced</span>');
+        const activeClawback = activeClawbackForSale(r.raw_id || r.raw?.id);
+        if (activeClawback) {
+          const cbStatus = String(activeClawback.status || '').toLowerCase().trim();
+          flags.push('<span class="admin-tag credit">Clawback ' + escapeHtml(cbStatus.replace(/_/g, ' ')) + '</span>');
+        } else if (isClawbackEligibleSale(r)) {
+          flags.push('<span class="admin-tag credit">Clawback eligible</span>');
+        }
 
         const invoiceCell = r.invoice_id
           ? `<span class="admin-tag good">${escapeHtml(r.invoice_id)}</span><div class="admin-note">${escapeHtml(formatDateTime(r.raw.invoiced_at || ''))}</div>`
@@ -4293,7 +4548,16 @@
           actionButtons.push(`<button class="inline-admin-btn warn" data-sale-review="needs_review" data-sale-id="${escapeHtml(r.raw_id)}">Needs Review</button>`);
           actionButtons.push(`<button class="inline-admin-btn bad" data-sale-review="rejected" data-sale-id="${escapeHtml(r.raw_id)}">Reject</button>`);
         } else {
-          actionButtons.push('<span class="admin-note">Locked after invoice</span>');
+          if (isClawbackEligibleSale(r)) {
+            actionButtons.push(`<button class="inline-admin-btn credit" data-create-clawback="${escapeHtml(r.raw_id)}">Add Clawback</button>`);
+          } else if (activeClawbackForSale(r.raw_id || r.raw?.id)) {
+            const cb = activeClawbackForSale(r.raw_id || r.raw?.id);
+            actionButtons.push(`<span class="admin-note">Clawback ${escapeHtml(String(cb.status || '').replace(/_/g, ' '))}</span>`);
+          } else if (String(r.install_outcome || '').toLowerCase().trim() === 'installed') {
+            actionButtons.push(`<span class="admin-note">${escapeHtml(clawbackWindowLabel(r))}</span>`);
+          } else {
+            actionButtons.push('<span class="admin-note">Locked after invoice</span>');
+          }
         }
 
         const rowClasses = ['sales-review-row'];
@@ -4338,6 +4602,7 @@
       }).join('') : '<tr><td colspan="6" style="color:#94a3b8;">No sales found for this review filter.</td></tr>';
       if (els.adminExportSalesReview) els.adminExportSalesReview.onclick = () => csvDownload('fieldos_sales_review.csv', reviewRecords.map(r => exportRecordsForInvoice([r], r.invoice_id || '')[0]));
       if (els.adminInvoiceInstalledSales) els.adminInvoiceInstalledSales.onclick = createInvoiceForInstalledSales;
+      if (els.adminExportClawbackCredits) els.adminExportClawbackCredits.onclick = () => exportPendingClawbackCredits();
       renderSalesReviewBatchBar();
     }
 
@@ -5255,6 +5520,12 @@
       const clearReviewBatchBtn = e.target.closest('#sales-review-clear-batch');
       if (clearReviewBatchBtn) {
         await clearSalesReviewBatchUpdates();
+        return;
+      }
+
+      const clawbackBtn = e.target.closest('[data-create-clawback]');
+      if (clawbackBtn) {
+        await createClawbackForSale(clawbackBtn.getAttribute('data-create-clawback'));
         return;
       }
 
