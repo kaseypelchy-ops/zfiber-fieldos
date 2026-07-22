@@ -244,6 +244,11 @@
     .admin-tag.credit { background: rgba(14,165,233,.14); color: #bae6fd; border-color: rgba(14,165,233,.32); }
     .inline-admin-btn.credit { background: rgba(14,165,233,.14) !important; color: #bae6fd !important; border-color: rgba(14,165,233,.32) !important; }
 
+    .mini-badge.info { background: rgba(34,211,238,.12); color: #a5f3fc; border-color: rgba(34,211,238,.30); }
+    .mini-badge.bad { background: rgba(239,68,68,.12); color: #fecaca; border-color: rgba(239,68,68,.30); }
+    .mini-badge.credit { background: rgba(14,165,233,.14); color: #bae6fd; border-color: rgba(14,165,233,.32); }
+    .sales-status-control { min-width: 210px; }
+
   </style>
 </head>
 <body>
@@ -373,16 +378,31 @@
         <div class="panel">
           <div class="panel-head">
             <div>
-              <h2>Submitted Sales Queue</h2>
-              <div class="panel-sub">All submitted sales with the details needed for CRM entry.</div>
+              <h2>Sales Status Tracker</h2>
+              <div class="panel-sub">Read-only sales lifecycle for submitted sales, ZIP entry, install outcomes, invoicing, and clawback credits.</div>
             </div>
-            <button id="export-sales-queue-btn">Export Sales Queue</button>
+            <div class="admin-actions">
+              <select id="sales-status-filter" class="sales-status-control" title="Filter sales by lifecycle status">
+                <option value="all">All Statuses</option>
+                <option value="submitted">Submitted</option>
+                <option value="entered_in_zip">Entered into ZIP</option>
+                <option value="installed">Installed</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="clawback_pending">Clawback Pending Credit</option>
+                <option value="clawback_credited">Clawback Credited</option>
+                <option value="clawbacks">All Clawbacks</option>
+                <option value="canceled">Canceled</option>
+                <option value="needs_rescheduled">Needs Rescheduled</option>
+              </select>
+              <button id="export-sales-queue-btn">Export Sales Status</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Created</th>
+                  <th>Status</th>
                   <th>Rep</th>
                   <th>Territory</th>
                   <th>Customer</th>
@@ -1010,7 +1030,7 @@
       sessionEmail: document.getElementById('session-email'), logoutBtn: document.getElementById('logout-btn'),
       tabOverview: document.getElementById('tab-overview'), tabSales: document.getElementById('tab-sales'), tabPricing: document.getElementById('tab-pricing'), tabInstallCapacity: document.getElementById('tab-install-capacity'), tabRoute: document.getElementById('tab-route'),
       tabPanelOverview: document.getElementById('tab-panel-overview'), tabPanelSales: document.getElementById('tab-panel-sales'), tabPanelPricing: document.getElementById('tab-panel-pricing'), tabPanelInstallCapacity: document.getElementById('tab-panel-install-capacity'), tabPanelRoute: document.getElementById('tab-panel-route'),
-      salesQueueBody: document.getElementById('sales-queue-body'), exportSalesQueue: document.getElementById('export-sales-queue-btn'), installCapacityBody: document.getElementById('install-capacity-body'), installCapacityDetailBody: document.getElementById('install-capacity-detail-body'), installCapacityAlerts: document.getElementById('install-capacity-alerts'), exportInstallCapacity: document.getElementById('export-install-capacity-btn'), pricingOffersBody: document.getElementById('pricing-offers-body'), pricingCoverageBody: document.getElementById('pricing-coverage-body'), promoWarnings: document.getElementById('promo-warning-list'), exportPricingOffers: document.getElementById('export-pricing-offers-btn'),
+      salesQueueBody: document.getElementById('sales-queue-body'), salesStatusFilter: document.getElementById('sales-status-filter'), exportSalesQueue: document.getElementById('export-sales-queue-btn'), installCapacityBody: document.getElementById('install-capacity-body'), installCapacityDetailBody: document.getElementById('install-capacity-detail-body'), installCapacityAlerts: document.getElementById('install-capacity-alerts'), exportInstallCapacity: document.getElementById('export-install-capacity-btn'), pricingOffersBody: document.getElementById('pricing-offers-body'), pricingCoverageBody: document.getElementById('pricing-coverage-body'), promoWarnings: document.getElementById('promo-warning-list'), exportPricingOffers: document.getElementById('export-pricing-offers-btn'),
       team: document.getElementById('team-filter'), territory: document.getElementById('territory-filter'), rep: document.getElementById('rep-filter'), start: document.getElementById('start-date'), end: document.getElementById('end-date'), refresh: document.getElementById('refresh-btn'), exportActivity: document.getElementById('export-activity-btn'), exportSales: document.getElementById('export-sales-btn'), exportEvents: document.getElementById('export-events-btn'), activitySearch: document.getElementById('activity-search'), autoRefresh: document.getElementById('auto-refresh'), status: document.getElementById('status-line'), repList: document.getElementById('rep-list'), scheduleList: document.getElementById('schedule-list'), activityBody: document.getElementById('activity-body'),
       routeRender: document.getElementById('route-render-btn'), routePlay: document.getElementById('route-play-btn'), routePause: document.getElementById('route-pause-btn'), routeReset: document.getElementById('route-reset-btn'), routeSpeed: document.getElementById('route-speed'), routeStatus: document.getElementById('route-status'), routeStops: document.getElementById('route-stat-stops'), routeDoors: document.getElementById('route-stat-doors'), routeWindow: document.getElementById('route-stat-window'), routePace: document.getElementById('route-stat-pace'), currentStop: document.getElementById('current-stop'), aiSummary: document.getElementById('ai-summary'),
       modal: document.getElementById('detail-modal'), detailTitle: document.getElementById('detail-title'), detailHead: document.getElementById('detail-head'), detailBody: document.getElementById('detail-body'), detailClose: document.getElementById('detail-close'), detailExport: document.getElementById('detail-export'), dashboardTitle: document.getElementById('dashboard-title'), dashboardSubtitle: document.getElementById('dashboard-subtitle')
@@ -1453,7 +1473,8 @@
         rep: els.rep.value || 'all',
         start: els.start.value,
         end: els.end.value,
-        search: (els.activitySearch.value || '').toLowerCase().trim()
+        search: (els.activitySearch.value || '').toLowerCase().trim(),
+        salesStatus: els.salesStatusFilter ? (els.salesStatusFilter.value || 'all') : 'all'
       };
     }
 
@@ -1658,12 +1679,66 @@
       els.rep.value = reps.includes(repValue) ? repValue : 'all';
     }
 
+
+    function salesQueueLifecycleStatus(row) {
+      const saleId = idKey(row?.id || row?.raw_id || '');
+      const clawback = saleId ? activeClawbackForSale(saleId) : null;
+      const clawbackStatus = String(clawback?.status || '').toLowerCase().trim();
+
+      if (clawbackStatus === 'pending_credit') {
+        return {
+          key: 'clawback_pending',
+          label: 'Clawback Pending Credit',
+          badgeClass: 'credit',
+          detail: 'Credit required on a future vendor invoice',
+          clawback
+        };
+      }
+      if (clawbackStatus === 'credited') {
+        return {
+          key: 'clawback_credited',
+          label: 'Clawback Credited',
+          badgeClass: 'credit',
+          detail: 'Clawback credit has been exported',
+          clawback
+        };
+      }
+
+      const installOutcome = String(row?.install_outcome || '').toLowerCase().trim();
+      if (['canceled', 'cancelled'].includes(installOutcome)) {
+        return { key: 'canceled', label: 'Canceled', badgeClass: 'bad', detail: row?.install_outcome_note || 'Install/order canceled', clawback: null };
+      }
+      if (installOutcome === 'needs_rescheduled') {
+        return { key: 'needs_rescheduled', label: 'Needs Rescheduled', badgeClass: 'warn', detail: row?.install_outcome_note || 'Install needs rescheduled', clawback: null };
+      }
+      if (row?.invoice_id || row?.invoice_batch_id || row?.invoiced_at || row?.invoice_exported_at) {
+        return { key: 'invoiced', label: 'Invoiced', badgeClass: 'good', detail: row?.invoice_id ? 'Invoice: ' + row.invoice_id : 'Included in invoice export', clawback: null };
+      }
+      if (installOutcome === 'installed') {
+        return { key: 'installed', label: 'Installed', badgeClass: 'good', detail: row?.install_outcome_at ? 'Installed on ' + formatDateTime(row.install_outcome_at) : 'Marked installed', clawback: null };
+      }
+      const reviewStatus = String(row?.review_status || '').toLowerCase().trim();
+      if (reviewStatus === 'entered_in_zip' || row?.entered_in_zip_at) {
+        return { key: 'entered_in_zip', label: 'Entered into ZIP', badgeClass: 'info', detail: row?.entered_in_zip_at ? 'Entered on ' + formatDateTime(row.entered_in_zip_at) : 'Waiting for install outcome', clawback: null };
+      }
+      return { key: 'submitted', label: 'Submitted', badgeClass: 'warn', detail: 'Submitted by sales team', clawback: null };
+    }
+
+    function salesQueueStatusMatchesFilter(record, statusFilter) {
+      const filter = String(statusFilter || 'all').toLowerCase().trim();
+      if (!filter || filter === 'all') return true;
+      if (filter === 'clawbacks') return String(record.lifecycle_status_key || '').startsWith('clawback_');
+      return String(record.lifecycle_status_key || '') === filter;
+    }
+
     function buildSalesQueueRecords(filteredSales, filteredEvents, addressMap, filters) {
       const orderAddressKeys = new Set();
       const orderRecords = filteredSales.map(s => {
         const addressKey = idKey(s.address_id || s.location_id || s.zito_location_id || s.external_id);
         if (addressKey) orderAddressKeys.add(addressKey);
         const snapshot = getSaleSnapshot(s);
+        const lifecycle = salesQueueLifecycleStatus(s);
+        const clawback = lifecycle.clawback || null;
         const promoDisplay = firstNonEmpty(s.promo_price, snapshotValue(snapshot, 'promo_display', ''));
         const promoTerm = firstNonEmpty(s.promo_term, snapshotValue(snapshot, 'promo_term_label', ''));
         const standardRate = firstNonEmpty(s.standard_rate, snapshotValue(snapshot, 'standard_rate_label', ''));
@@ -1676,6 +1751,21 @@
           review_note: s.review_note || s.admin_note || '',
           reviewed_at: s.reviewed_at || '',
           reviewed_by: s.reviewed_by || '',
+          entered_in_zip_at: s.entered_in_zip_at || '',
+          install_outcome: s.install_outcome || '',
+          install_outcome_at: s.install_outcome_at || '',
+          install_outcome_note: s.install_outcome_note || '',
+          invoice_id: s.invoice_id || '',
+          invoice_batch_id: s.invoice_batch_id || '',
+          invoiced_at: s.invoiced_at || '',
+          lifecycle_status: lifecycle.label,
+          lifecycle_status_key: lifecycle.key,
+          lifecycle_badge_class: lifecycle.badgeClass,
+          lifecycle_status_detail: lifecycle.detail,
+          clawback_status: clawback ? (clawback.status || '') : '',
+          clawback_disconnect_date: clawback ? (clawback.disconnect_date || '') : '',
+          clawback_reason: clawback ? (clawback.clawback_reason || '') : '',
+          clawback_credit_invoice_id: clawback ? (clawback.credit_invoice_id || '') : '',
           created_at: s.created_at,
           rep_name: getRepName(s),
           territory: getRowTerritory(s, addressMap) || '',
@@ -1706,6 +1796,21 @@
           raw_id: '',
           review_status: 'needs_review',
           review_note: 'Sale disposition found without matching sales_orders row.',
+          entered_in_zip_at: '',
+          install_outcome: '',
+          install_outcome_at: '',
+          install_outcome_note: '',
+          invoice_id: '',
+          invoice_batch_id: '',
+          invoiced_at: '',
+          lifecycle_status: 'Needs Review',
+          lifecycle_status_key: 'needs_review',
+          lifecycle_badge_class: 'warn',
+          lifecycle_status_detail: 'Sale disposition found without matching sales_orders row.',
+          clawback_status: '',
+          clawback_disconnect_date: '',
+          clawback_reason: '',
+          clawback_credit_invoice_id: '',
           created_at: ev.created_at,
           rep_name: getRepName(ev),
           territory: getRowTerritory(ev, addressMap) || '',
@@ -1730,6 +1835,7 @@
 
       return [...orderRecords, ...fallbackEventRecords]
         .filter(r => rowMatchesUiTerritory(r, filters.territory) && rowMatchesRep(r, filters.rep))
+        .filter(r => salesQueueStatusMatchesFilter(r, filters.salesStatus))
         .filter(r => !filters.search || Object.values(r).join(' ').toLowerCase().includes(filters.search))
         .sort((a,b) => timeValue(b.created_at) - timeValue(a.created_at));
     }
@@ -2868,9 +2974,14 @@
     }
 
     function renderSalesQueue(rows) {
-      els.salesQueueBody.innerHTML = rows.length ? rows.map(r => `<tr class="row-btn"><td>${escapeHtml(formatDateTime(r.created_at))}</td><td>${escapeHtml(r.rep_name || '—')}</td><td>${escapeHtml(r.territory || '—')}</td><td>${escapeHtml(r.customer_name || '—')}</td><td>${escapeHtml(r.phone || '—')}</td><td>${escapeHtml(r.email || '—')}</td><td>${escapeHtml(r.address || '—')}</td><td>${escapeHtml(r.package_name || '—')}</td><td>${escapeHtml(r.offer_promo || '—')}<br><span style="color:#94a3b8;">${escapeHtml(r.offer_code || '')}</span></td><td>${escapeHtml(r.promo_term || '—')}</td><td>${escapeHtml(r.monthly_total || '—')}</td><td>${escapeHtml(r.first_bill_estimate || '—')}</td><td>${escapeHtml(r.standard_rate || '—')}</td><td><span class="mini-badge ${r.offer_snapshot ? 'good' : 'warn'}">${escapeHtml(r.offer_snapshot_status || '—')}</span></td><td>${escapeHtml(r.install_date || '—')}</td><td>${escapeHtml(r.install_time || '—')}</td><td>${escapeHtml(r.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="17" style="color:#94a3b8;">No submitted sales found.</td></tr>';
+      els.salesQueueBody.innerHTML = rows.length ? rows.map(r => {
+        const statusClass = String(r.lifecycle_badge_class || 'info').replace(/[^a-z0-9_-]/gi, '');
+        const statusDetail = r.lifecycle_status_detail ? `<br><span style="color:#94a3b8;">${escapeHtml(r.lifecycle_status_detail)}</span>` : '';
+        const clawbackDetail = r.clawback_status ? `<br><span style="color:#94a3b8;">${escapeHtml([r.clawback_status, r.clawback_disconnect_date, r.clawback_reason].filter(Boolean).join(' • '))}</span>` : '';
+        return `<tr class="row-btn"><td>${escapeHtml(formatDateTime(r.created_at))}</td><td><span class="mini-badge ${statusClass}">${escapeHtml(r.lifecycle_status || 'Submitted')}</span>${statusDetail}${clawbackDetail}</td><td>${escapeHtml(r.rep_name || '—')}</td><td>${escapeHtml(r.territory || '—')}</td><td>${escapeHtml(r.customer_name || '—')}</td><td>${escapeHtml(r.phone || '—')}</td><td>${escapeHtml(r.email || '—')}</td><td>${escapeHtml(r.address || '—')}</td><td>${escapeHtml(r.package_name || '—')}</td><td>${escapeHtml(r.offer_promo || '—')}<br><span style="color:#94a3b8;">${escapeHtml(r.offer_code || '')}</span></td><td>${escapeHtml(r.promo_term || '—')}</td><td>${escapeHtml(r.monthly_total || '—')}</td><td>${escapeHtml(r.first_bill_estimate || '—')}</td><td>${escapeHtml(r.standard_rate || '—')}</td><td><span class="mini-badge ${r.offer_snapshot ? 'good' : 'warn'}">${escapeHtml(r.offer_snapshot_status || '—')}</span></td><td>${escapeHtml(r.install_date || '—')}</td><td>${escapeHtml(r.install_time || '—')}</td><td>${escapeHtml(r.notes || '—')}</td></tr>`;
+      }).join('') : '<tr><td colspan="18" style="color:#94a3b8;">No sales found for the selected lifecycle/status filters.</td></tr>';
       if (!rows.length) return;
-      [...els.salesQueueBody.querySelectorAll('tr')].forEach((tr, idx) => { tr.onclick = () => openDetail('Sales Submission Detail', [rows[idx]]); });
+      [...els.salesQueueBody.querySelectorAll('tr')].forEach((tr, idx) => { tr.onclick = () => openDetail('Sales Status Detail', [rows[idx]]); });
     }
 
     function setActiveTab(tabName) {
@@ -2967,6 +3078,7 @@
     }
     els.territory.onchange = renderAll;
     els.rep.onchange = renderAll;
+    if (els.salesStatusFilter) els.salesStatusFilter.onchange = renderAll;
     els.activitySearch.oninput = renderAll;
     els.start.onchange = loadData;
     els.end.onchange = loadData;
