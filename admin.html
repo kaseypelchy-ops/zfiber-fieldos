@@ -248,6 +248,42 @@
     .mini-badge.bad { background: rgba(239,68,68,.12); color: #fecaca; border-color: rgba(239,68,68,.30); }
     .mini-badge.credit { background: rgba(14,165,233,.14); color: #bae6fd; border-color: rgba(14,165,233,.32); }
     .sales-status-control { min-width: 210px; }
+    .workflow-moved-tab { display: none !important; }
+
+    .workflow-hub { margin: 18px 0 20px; }
+    .workflow-links { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+    .workflow-card {
+      display: block;
+      text-decoration: none;
+      color: var(--text);
+      background: rgba(30,41,59,.55);
+      border: 1px solid rgba(148,163,184,.16);
+      border-radius: 16px;
+      padding: 14px;
+      min-height: 112px;
+      transition: border-color .15s ease, transform .15s ease, background .15s ease;
+    }
+    .workflow-card:hover {
+      border-color: rgba(34,211,238,.45);
+      background: rgba(34,211,238,.08);
+      transform: translateY(-1px);
+    }
+    .workflow-card-title { font-size: 16px; font-weight: 800; margin-bottom: 7px; }
+    .workflow-card-sub { color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .workflow-card-pill {
+      display: inline-flex;
+      margin-top: 12px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(34,211,238,.12);
+      color: #a5f3fc;
+      border: 1px solid rgba(34,211,238,.24);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
 
   </style>
 </head>
@@ -272,7 +308,7 @@
         <div>
           <div class="eyebrow">Zito FieldOS</div>
           <h1 id="dashboard-title">Admin Dashboard</h1>
-          <p id="dashboard-subtitle" class="sub">Team performance and sales activity dashboard.</p>
+          <p id="dashboard-subtitle" class="sub">Company operations dashboard. Detailed workflow tools are separated into faster focused pages.</p>
         </div>
         <div class="auth-top-right">
           <div id="session-email" class="pill">Not signed in</div>
@@ -301,25 +337,57 @@
       </div>
 
       <div id="status-line" class="status-line">Signed in. Loading data...</div>
-      <div class="status-line">Use the filters above to review team performance, territory activity, sales, install capacity, and rep follow-up.</div>
+      <div class="status-line">Use this page for the company operations view. Sales Review/Invoicing, Setup, Offers & Pricing, and Management Overview now open as focused pages below.</div>
+
+      <div class="panel workflow-hub">
+        <div class="panel-head">
+          <div>
+            <h2>Focused Workflow Pages</h2>
+            <div class="panel-sub">Use these pages for the heavier admin workflows. They sync with this dashboard because they use the same Supabase tables.</div>
+          </div>
+        </div>
+        <div class="workflow-links">
+          <a class="workflow-card" href="sales-review.html">
+            <div class="workflow-card-title">Sales Review & Invoicing</div>
+            <div class="workflow-card-sub">Review submitted sales, mark ZIP entry, install outcomes, invoice installed sales, and manage clawback credits.</div>
+            <span class="workflow-card-pill">Open Page</span>
+          </a>
+          <a class="workflow-card" href="pricing.html">
+            <div class="workflow-card-title">Offers & Pricing</div>
+            <div class="workflow-card-sub">Add, edit, duplicate, deactivate, and audit active pricing offers used by the field app.</div>
+            <span class="workflow-card-pill">Open Page</span>
+          </a>
+          <a class="workflow-card" href="setup.html">
+            <div class="workflow-card-title">Setup Center</div>
+            <div class="workflow-card-sub">Manage reps, territories, rep assignments, and boundary/KMZ file mappings.</div>
+            <span class="workflow-card-pill">Open Page</span>
+          </a>
+          <a class="workflow-card" href="management.html">
+            <div class="workflow-card-title">Management Overview</div>
+            <div class="workflow-card-sub">Open the big-picture management dashboard for executive-level performance and historical reporting.</div>
+            <span class="workflow-card-pill">Open Page</span>
+          </a>
+        </div>
+      </div>
+
 
       <div class="tab-bar">
         <button id="tab-overview" class="tab-btn active">Overview</button>
-        <button id="tab-sales" class="tab-btn">Sales Queue</button>
-        <button id="tab-pricing" class="tab-btn">Offers & Pricing</button>
-        <button id="tab-sales-review" class="tab-btn">Sales Review</button>
+        <button id="tab-sales" class="tab-btn">Sales Status</button>
+        <button id="tab-pricing" class="tab-btn workflow-moved-tab" aria-hidden="true" tabindex="-1">Offers & Pricing</button>
+        <button id="tab-sales-review" class="tab-btn workflow-moved-tab" aria-hidden="true" tabindex="-1">Sales Review</button>
         <button id="tab-install-capacity" class="tab-btn">Install Capacity</button>
-        <button id="tab-reps-admin" class="tab-btn admin-only">Reps</button>
-        <button id="tab-territories-admin" class="tab-btn admin-only">Territories</button>
-        <button id="tab-boundaries-admin" class="tab-btn admin-only">Boundary Files</button>
+        <button id="tab-reps-admin" class="tab-btn admin-only workflow-moved-tab" aria-hidden="true" tabindex="-1">Reps</button>
+        <button id="tab-territories-admin" class="tab-btn admin-only workflow-moved-tab" aria-hidden="true" tabindex="-1">Territories</button>
+        <button id="tab-boundaries-admin" class="tab-btn admin-only workflow-moved-tab" aria-hidden="true" tabindex="-1">Boundary Files</button>
         <button id="tab-data-quality" class="tab-btn admin-only">Data Quality</button>
         <button id="tab-address-timeline" class="tab-btn admin-only">Address Timeline</button>
         <button id="tab-address-import" class="tab-btn admin-only">Address Import</button>
         <button id="tab-rep-qa" class="tab-btn admin-only">Rep QA</button>
-        <button id="tab-vendor-scorecard" class="tab-btn admin-only">Vendor Scorecard</button>
+        <button id="tab-vendor-scorecard" class="tab-btn admin-only workflow-moved-tab" aria-hidden="true" tabindex="-1">Vendor Scorecard</button>
         <button id="tab-admin-audit" class="tab-btn admin-only">Admin Audit</button>
         <button id="tab-daily-reports" class="tab-btn admin-only">Daily Reports</button>
-        <button id="tab-historical-reporting" class="tab-btn admin-only">Historical Reporting</button>
+        <button id="tab-historical-reporting" class="tab-btn admin-only workflow-moved-tab" aria-hidden="true" tabindex="-1">Historical Reporting</button>
         <button id="tab-database-health" class="tab-btn admin-only">System Status</button>
         <button id="tab-route" class="tab-btn">Route Replay + AI Analysis</button>
       </div>
@@ -1599,16 +1667,16 @@
           bookingFilters.push({ type: 'lte', column: 'created_at', value: filters.end + 'T23:59:59' });
         }
 
-        const [addresses, reps, address_events, sales_orders, schedule_slots, schedule_bookings, sales_order_clawbacks, fieldos_pricing_offers] = await Promise.all([
+        const [addresses, reps, address_events, sales_orders, schedule_slots, schedule_bookings, sales_order_clawbacks] = await Promise.all([
           fetchAllPages('addresses', { order: { column: 'address1', ascending: true }, filters: addressFilters }),
           fetchAllPages('reps', { order: { column: 'full_name', ascending: true }, filters: repFilters }),
           fetchAllPages('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters }),
           fetchAllPages('sales_orders', { order: { column: 'created_at', ascending: false }, filters: salesFilters }),
           fetchAllPages('schedule_slots', { order: { column: 'slot_date', ascending: true }, filters: slotFilters }),
           fetchAllPages('schedule_bookings', { order: { column: 'created_at', ascending: false }, filters: bookingFilters }),
-          fetchOptionalAllPages('sales_order_clawbacks', { order: { column: 'created_at', ascending: false }, filters: clawbackFilters }),
-          fetchOptionalAllPages('fieldos_pricing_offers', { order: { column: 'priority', ascending: true } })
+          fetchOptionalAllPages('sales_order_clawbacks', { order: { column: 'created_at', ascending: false }, filters: clawbackFilters })
         ]);
+        const fieldos_pricing_offers = [];
 
         loadedCounts = {
           addresses: addresses.length,
@@ -2516,7 +2584,7 @@
       renderScheduleList(utilizationRecords);
       renderActivity(activityRecords);
       renderSalesQueue(salesQueueRecords);
-      renderPricingAdmin(salesQueueRecords);
+      // Pricing workflow moved to pricing.html to keep this dashboard lighter.
       renderInstallCapacity(filteredSales, filteredBookings, addressMap, slotMap);
       if (els.tabPanelRoute && els.tabPanelRoute.classList.contains('active')) setTimeout(renderRouteReplay, 80);
 
@@ -3391,10 +3459,10 @@
       if (els.dashboardTitle && els.dashboardSubtitle) {
         if (allowed) {
           els.dashboardTitle.textContent = 'Company Admin Dashboard';
-          els.dashboardSubtitle.textContent = 'Company-wide view for approved company admins.';
+          els.dashboardSubtitle.textContent = 'Operations view with focused workflow pages linked below.';
         } else {
           els.dashboardTitle.textContent = `${selectedTeamLabel()} Dashboard`;
-          els.dashboardSubtitle.textContent = 'Team-scoped dashboard for approved team users.';
+          els.dashboardSubtitle.textContent = 'Team-scoped view with read-only sales status and operations activity.';
         }
       }
 
@@ -3935,266 +4003,26 @@
     }
 
     function renderAdminControlCenter() {
-      renderAdminSalesReview();
+      // Keep the company admin dashboard lightweight. The heavier workflow tools now live on:
+      // sales-review.html, pricing.html, and setup.html. This page still shows operational summaries
+      // and syncs with those focused pages because all pages use the same Supabase tables.
+      if (els.tabPanelSalesReview && els.tabPanelSalesReview.classList.contains('active')) renderAdminSalesReview();
+
       if (!document.body.classList.contains('admin-enabled')) return;
-      renderAdminReps();
-      renderAdminTerritories();
-      renderAdminBoundaries();
+
+      if (els.tabPanelRepsAdmin && els.tabPanelRepsAdmin.classList.contains('active')) renderAdminReps();
+      if (els.tabPanelTerritoriesAdmin && els.tabPanelTerritoriesAdmin.classList.contains('active')) renderAdminTerritories();
+      if (els.tabPanelBoundariesAdmin && els.tabPanelBoundariesAdmin.classList.contains('active')) renderAdminBoundaries();
+
       renderAdminDataQuality();
       renderAdminAddressTimeline();
       renderAdminImportPreview();
       renderAdminRepQa();
-      renderAdminVendorScorecard();
+      if (els.tabPanelVendorScorecard && els.tabPanelVendorScorecard.classList.contains('active')) renderAdminVendorScorecard();
       renderAdminAuditLog();
       renderAdminDailyReports();
       if (els.tabPanelHistoricalReporting && els.tabPanelHistoricalReporting.classList.contains('active')) renderHistoricalReporting();
       if (els.tabPanelDatabaseHealth && els.tabPanelDatabaseHealth.classList.contains('active')) renderDatabaseHealth();
-    }
-
-    function saleInstallOutcome(row) {
-      return String(row.install_outcome || row.install_status || row.installation_status || '').toLowerCase().trim();
-    }
-
-    function saleInvoiceId(row) {
-      return String(row.invoice_id || row.invoice_number || '').trim();
-    }
-
-    function installOutcomeTag(outcome) {
-      const s = String(outcome || '').toLowerCase().trim();
-      const labels = {
-        installed: 'Installed',
-        needs_rescheduled: 'Needs Rescheduled',
-        rescheduled: 'Needs Rescheduled',
-        canceled: 'Canceled',
-        cancelled: 'Canceled',
-        pending: 'Pending Install'
-      };
-      const cls = s === 'installed' ? 'good' : (s === 'needs_rescheduled' || s === 'rescheduled') ? 'warn' : (s === 'canceled' || s === 'cancelled') ? 'bad' : 'info';
-      return `<span class="admin-tag ${cls}">${escapeHtml(labels[s] || (s ? s : 'Pending Install'))}</span>`;
-    }
-
-    function getDashboardTeamSlugForInvoice() {
-      const selectedTeam = selectedTeamFilter();
-      if (selectedTeam && selectedTeam !== 'all') return selectedTeam;
-
-      const filters = currentFilters();
-      if (filters.territory && filters.territory !== 'all') {
-        const terr = normalizeTerritory(filters.territory);
-        const row = (adminState.territories || []).find(t => normalizeTerritory(firstNonEmpty(t.territory_key, t.territory, t.slug, t.display_name, t.name)) === terr);
-        if (row && row.team_slug) return row.team_slug;
-      }
-      return '';
-    }
-
-    function normalizeInvoiceSaleRow(r) {
-      const raw = r.raw || state.sales_orders.find(s => idKey(s.id) === idKey(r.raw_id)) || {};
-      const review = r.review_status || saleReviewStatus(raw);
-      const outcome = r.install_outcome || saleInstallOutcome(raw);
-      const invoiceId = r.invoice_id || saleInvoiceId(raw);
-      return { ...r, raw, review_status: review, install_outcome: outcome, invoice_id: invoiceId };
-    }
-
-    function isInvoiceEligibleSale(r) {
-      r = normalizeInvoiceSaleRow(r);
-      return idKey(r.raw_id || r.raw.id) && r.review_status === 'entered_in_zip' && r.install_outcome === 'installed' && !r.invoice_id;
-    }
-
-    function exportRecordsForInvoice(rows, invoiceId) {
-      return rows.map(r => {
-        r = normalizeInvoiceSaleRow(r);
-        const raw = r.raw || {};
-        return {
-          invoice_id: invoiceId || r.invoice_id || '',
-          sale_id: r.raw_id || raw.id || '',
-          created_at: r.created_at || raw.created_at || '',
-          entered_in_zip_at: raw.entered_in_zip_at || '',
-          installed_at: raw.install_outcome_at || '',
-          team: firstNonEmpty(raw.team, r.team, ''),
-          team_slug: firstNonEmpty(raw.team_slug, ''),
-          territory: r.territory || raw.territory || '',
-          rep: r.rep_name || getRepName(raw) || '',
-          customer_name: r.customer_name || getCustomerName(raw) || '',
-          phone: r.phone || raw.phone || raw.customer_phone || '',
-          email: r.email || raw.email || raw.customer_email || '',
-          address: r.address || buildAddressLabel(buildAddressMap(), raw),
-          package: r.package_name || getPackageName(raw) || '',
-          offer: r.offer_promo || raw.offer_name || raw.offer_code || '',
-          monthly_total: r.monthly_total || raw.monthly_total || '',
-          first_bill_estimate: raw.first_bill_estimate || '',
-          install_date: r.install_date || raw.install_date || raw.preferred_install_date || '',
-          install_time: r.install_time || raw.install_time || raw.install_slot || '',
-          review_status: r.review_status,
-          install_outcome: r.install_outcome,
-          notes: r.notes || raw.notes || raw.note || ''
-        };
-      });
-    }
-
-    function salesReviewInstallDateValue(row) {
-      const raw = row?.raw || {};
-      const value = firstNonEmpty(row?.install_date, raw.install_date, raw.preferred_install_date, raw.appointment_date, raw.slot_date);
-      const str = String(value || '').trim();
-      if (!str) return '';
-      if (/^\d{4}-\d{1,2}-\d{1,2}/.test(str)) return str.slice(0, 10);
-      const parsed = new Date(str);
-      return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : str;
-    }
-
-    function salesReviewInstallTimeValue(row) {
-      const raw = row?.raw || {};
-      return String(firstNonEmpty(row?.install_time, raw.install_time, raw.install_slot, raw.preferred_install_time, raw.appointment_time, raw.time_label)).trim();
-    }
-
-    function salesReviewDateMs(dateValue) {
-      const str = String(dateValue || '').trim();
-      if (!str) return 0;
-      const iso = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-      if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
-      const us = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      if (us) {
-        let year = Number(us[3]);
-        if (year < 100) year += 2000;
-        return new Date(year, Number(us[1]) - 1, Number(us[2])).getTime();
-      }
-      const parsed = new Date(str).getTime();
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-
-    function salesReviewTimeMinutes(timeValueRaw) {
-      const str = String(timeValueRaw || '').trim().toLowerCase();
-      if (!str) return -1;
-      const match = str.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-      if (!match) return -1;
-      let hour = Number(match[1]);
-      const minute = Number(match[2] || 0);
-      const meridiem = String(match[3] || '').toLowerCase();
-      if (meridiem === 'pm' && hour < 12) hour += 12;
-      if (meridiem === 'am' && hour === 12) hour = 0;
-      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return -1;
-      return (hour * 60) + minute;
-    }
-
-    function salesReviewInstallSortValue(row) {
-      const dateMs = salesReviewDateMs(salesReviewInstallDateValue(row));
-      if (!dateMs) return 0;
-      const minutes = salesReviewTimeMinutes(salesReviewInstallTimeValue(row));
-      return dateMs + (Math.max(minutes, -1) * 60000);
-    }
-
-    function salesReviewSubmittedSortValue(row) {
-      const raw = row?.raw || {};
-      return timeValue(firstNonEmpty(row?.created_at, raw.created_at, raw.submitted_at, raw.updated_at));
-    }
-
-    function salesReviewIsClosedOrIrrelevant(row) {
-      const review = String(row?.review_status || '').toLowerCase().trim();
-      const outcome = String(row?.install_outcome || '').toLowerCase().trim();
-      if (row?.invoice_id) return true;
-      if (['invoiced', 'rejected', 'canceled', 'cancelled'].includes(review)) return true;
-      if (['canceled', 'cancelled'].includes(outcome)) return true;
-      return false;
-    }
-
-    function salesReviewNewestInstallFirst(a, b) {
-      const aInstall = salesReviewInstallSortValue(a);
-      const bInstall = salesReviewInstallSortValue(b);
-      const aHasInstall = aInstall > 0;
-      const bHasInstall = bInstall > 0;
-      if (aHasInstall !== bHasInstall) return aHasInstall ? -1 : 1;
-      if (aInstall !== bInstall) return bInstall - aInstall;
-      const aSubmitted = salesReviewSubmittedSortValue(a);
-      const bSubmitted = salesReviewSubmittedSortValue(b);
-      if (aSubmitted !== bSubmitted) return bSubmitted - aSubmitted;
-      return String(b?.raw_id || b?.raw?.id || '').localeCompare(String(a?.raw_id || a?.raw?.id || ''));
-    }
-
-    const SALES_REVIEW_DEFAULT_START_DATE = '2026-07-01';
-
-    function localIsoDateToday() {
-      const d = new Date();
-      return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
-    }
-
-    function salesReviewRelevantDate(row) {
-      const raw = row?.raw || {};
-      return String(firstNonEmpty(
-        salesReviewInstallDateValue(row),
-        row?.install_date,
-        raw.install_date,
-        row?.created_at,
-        raw.created_at,
-        raw.submitted_at,
-        raw.updated_at
-      )).slice(0, 10);
-    }
-
-    function salesReviewDateScopeIncludes(row, filters) {
-      const scope = els.adminSalesReviewDateScope?.value || 'july_2026_forward';
-      if (scope === 'all_history') return true;
-      const date = salesReviewRelevantDate(row);
-      if (!date) return true;
-      if (scope === 'today_forward') return date >= localIsoDateToday();
-      if (scope === 'dashboard_range') return dateInFilterWindow(date, filters || currentFilters());
-      return date >= SALES_REVIEW_DEFAULT_START_DATE;
-    }
-
-    function salesReviewDateScopeLabel() {
-      const scope = els.adminSalesReviewDateScope?.value || 'july_2026_forward';
-      if (scope === 'all_history') return 'All history';
-      if (scope === 'today_forward') return 'Today forward';
-      if (scope === 'dashboard_range') return 'Dashboard date range';
-      return 'Since Jul 1, 2026';
-    }
-
-    function filteredSalesReviewRecords() {
-      const filters = currentFilters();
-      const addressMap = buildAddressMap();
-      const rows = buildSalesQueueRecords(state.sales_orders, state.address_events, addressMap, filters);
-      const filter = els.adminSalesReviewFilter?.value || 'install_workflow';
-      return rows.map(r => {
-        const raw = state.sales_orders.find(s => idKey(s.id) === idKey(r.raw_id)) || state.sales_orders.find(s => String(s.created_at) === String(r.created_at) && (getRepName(s) === r.rep_name || buildAddressLabel(addressMap, s) === r.address)) || {};
-        const merged = normalizeInvoiceSaleRow({ ...r, raw_id: r.raw_id || raw.id || '', review_status: r.review_status || saleReviewStatus(raw), review_note: r.review_note || raw.review_note || raw.admin_note || '', install_outcome: saleInstallOutcome(raw), invoice_id: saleInvoiceId(raw), raw });
-        if (!merged.install_date) merged.install_date = salesReviewInstallDateValue(merged);
-        if (!merged.install_time) merged.install_time = salesReviewInstallTimeValue(merged);
-        return merged;
-      }).filter(r => salesReviewDateScopeIncludes(r, filters)).filter(r => {
-        if (filter === 'install_workflow') return !salesReviewIsClosedOrIrrelevant(r);
-        if (filter === 'all') return true;
-        if (filter === 'needs_review') return !r.review_status || ['submitted','needs_review'].includes(r.review_status);
-        if (filter === 'installed_ready') return isInvoiceEligibleSale(r);
-        if (filter === 'invoiced') return !!r.invoice_id || r.review_status === 'invoiced';
-        if (filter === 'clawback_eligible') return isClawbackEligibleSale(r);
-        if (filter === 'clawback_pending') return !!activeClawbackForSale(r.raw_id || r.raw?.id) && clawbackStatusForSale(r.raw_id || r.raw?.id) === 'pending_credit';
-        if (filter === 'needs_rescheduled') return r.install_outcome === 'needs_rescheduled' || r.install_outcome === 'rescheduled';
-        if (filter === 'canceled') return r.install_outcome === 'canceled' || r.install_outcome === 'cancelled' || r.review_status === 'canceled' || r.review_status === 'cancelled';
-        return r.review_status === filter;
-      }).sort(salesReviewNewestInstallFirst);
-    }
-
-    function getPendingSalesReviewUpdate(id) {
-      const key = idKey(id);
-      return key ? pendingSalesReviewUpdates.get(key) : null;
-    }
-
-    function salesReviewPayloadLabel(payload, fallback) {
-      if (fallback) return fallback;
-      if (!payload) return 'Review update';
-      if (payload.review_status === 'entered_in_zip') return 'Entered in ZiP';
-      if (payload.review_status === 'needs_review') return 'Needs review';
-      if (payload.review_status === 'rejected') return 'Rejected';
-      if (payload.review_status === 'canceled') return 'Canceled';
-      if (payload.install_outcome === 'installed') return 'Installed';
-      if (payload.install_outcome === 'needs_rescheduled') return 'Needs rescheduled';
-      if (payload.install_outcome === 'canceled') return 'Canceled';
-      return 'Review update';
-    }
-
-    function applyPendingSalePayloadToLocalState(id, payload) {
-      const key = idKey(id);
-      if (!key || !payload) return;
-      (state.sales_orders || []).forEach(row => {
-        if (idKey(row.id) === key || idKey(row.raw_id) === key) Object.assign(row, payload);
-      });
     }
 
     function renderSalesReviewBatchBar() {
