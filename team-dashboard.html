@@ -152,6 +152,21 @@
 
     .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
     .chart-box { position: relative; height: 330px; }
+
+    .trend-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .trend-card { background: rgba(30,41,59,.55); border: 1px solid rgba(148,163,184,.16); border-radius: 18px; padding: 15px; }
+    .trend-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+    .trend-value { margin-top: 9px; font-size: 28px; font-weight: 900; }
+    .trend-sub { color: var(--muted); margin-top: 7px; font-size: 12px; line-height: 1.35; }
+    .trend-positive { color: #bbf7d0; }
+    .trend-negative { color: #fecaca; }
+    .trend-neutral { color: #cbd5e1; }
+    .insight-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .insight-card { background: rgba(2,6,23,.45); border: 1px solid rgba(148,163,184,.14); border-radius: 17px; padding: 14px; }
+    .insight-title { font-size: 13px; color: var(--muted); font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+    .insight-main { margin-top: 10px; font-size: 18px; line-height: 1.25; font-weight: 900; }
+    .insight-sub { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+
     .route-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(350px, .65fr); gap: 18px; align-items: start; }
     #route-map { height: 560px; border-radius: 18px; border: 1px solid var(--border); overflow: hidden; background: #020617; }
     .route-controls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -175,12 +190,13 @@
     @media (max-width: 1200px) {
       .controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .grid-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .grid-2, .charts-grid, .route-grid { grid-template-columns: 1fr; }
+      .grid-2, .charts-grid, .route-grid, .insight-grid { grid-template-columns: 1fr; }
+      .trend-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .route-stats, .route-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 700px) {
       body { padding: 12px; }
-      .controls, .grid-kpis { grid-template-columns: 1fr; }
+      .controls, .grid-kpis, .trend-kpis { grid-template-columns: 1fr; }
       .kpi-value { font-size: 27px; }
     }
   </style>
@@ -251,6 +267,7 @@
         <button class="tab-btn" data-tab="activity" type="button">Recent Activity</button>
         <button class="tab-btn" data-tab="reps" type="button">Rep Performance</button>
         <button class="tab-btn" data-tab="charts" type="button">Charts</button>
+        <button class="tab-btn" data-tab="trends" type="button">Trends</button>
         <button class="tab-btn" data-tab="route" type="button">Route Replay</button>
       </div>
 
@@ -387,6 +404,64 @@
         </div>
       </div>
 
+
+      <div id="tab-trends" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Sales Trends</h2>
+              <div class="panel-sub">Week-over-week and month-over-month movement based on the selected team, territory, rep, status, and date filters.</div>
+            </div>
+          </div>
+
+          <div class="trend-kpis">
+            <div class="trend-card"><div class="trend-label">This Week</div><div id="trend-this-week" class="trend-value">0</div><div class="trend-sub">Sales since Monday</div></div>
+            <div class="trend-card"><div class="trend-label">Last Week</div><div id="trend-last-week" class="trend-value">0</div><div class="trend-sub">Prior Monday through Sunday</div></div>
+            <div class="trend-card"><div class="trend-label">WoW Change</div><div id="trend-wow-change" class="trend-value trend-neutral">0.0%</div><div id="trend-wow-sub" class="trend-sub">No movement yet</div></div>
+            <div class="trend-card"><div class="trend-label">This Month</div><div id="trend-this-month" class="trend-value">0</div><div class="trend-sub">Sales this calendar month</div></div>
+            <div class="trend-card"><div class="trend-label">Last Month</div><div id="trend-last-month" class="trend-value">0</div><div class="trend-sub">Previous calendar month</div></div>
+            <div class="trend-card"><div class="trend-label">MoM Change</div><div id="trend-mom-change" class="trend-value trend-neutral">0.0%</div><div id="trend-mom-sub" class="trend-sub">No movement yet</div></div>
+          </div>
+
+          <div class="insight-grid">
+            <div class="insight-card"><div class="insight-title">Best Team This Week</div><div id="trend-best-team" class="insight-main">—</div><div id="trend-best-team-sub" class="insight-sub">Filtered sales only</div></div>
+            <div class="insight-card"><div class="insight-title">Best Territory This Week</div><div id="trend-best-territory" class="insight-main">—</div><div id="trend-best-territory-sub" class="insight-sub">Filtered sales only</div></div>
+            <div class="insight-card"><div class="insight-title">Best Rep This Week</div><div id="trend-best-rep" class="insight-main">—</div><div id="trend-best-rep-sub" class="insight-sub">Filtered sales only</div></div>
+            <div class="insight-card"><div class="insight-title">7-Day / 30-Day Pace</div><div id="trend-pace" class="insight-main">—</div><div id="trend-pace-sub" class="insight-sub">Average sales per day</div></div>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Daily Sales Trend</h2><div class="panel-sub">Sales by day across the loaded date range.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="trend-daily-chart"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Weekly Sales Trend</h2><div class="panel-sub">Sales grouped by Monday-start week.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="trend-weekly-chart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Monthly Sales Trend</h2><div class="panel-sub">Sales grouped by calendar month.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="trend-monthly-chart"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Outcome Trend</h2><div class="panel-sub">Installed, needs rescheduled, canceled, and submitted trend by week.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="trend-outcome-chart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
       <div id="tab-route" class="tab-panel">
         <div class="panel">
           <div class="panel-head">
@@ -495,6 +570,10 @@
     statusMixChart: document.getElementById('status-mix-chart'),
     territoryPerformanceChart: document.getElementById('territory-performance-chart'),
     repPerformanceChart: document.getElementById('rep-performance-chart'),
+    trendDailyChart: document.getElementById('trend-daily-chart'),
+    trendWeeklyChart: document.getElementById('trend-weekly-chart'),
+    trendMonthlyChart: document.getElementById('trend-monthly-chart'),
+    trendOutcomeChart: document.getElementById('trend-outcome-chart'),
     routeMap: document.getElementById('route-map'),
     routeRender: document.getElementById('route-render-btn'),
     routePlay: document.getElementById('route-play-btn'),
@@ -515,6 +594,7 @@
   let refreshTimer = null;
   let loading = false;
   let salesTrendChartInstance, statusMixChartInstance, territoryPerformanceChartInstance, repPerformanceChartInstance;
+  let trendDailyChartInstance, trendWeeklyChartInstance, trendMonthlyChartInstance, trendOutcomeChartInstance;
   let routeMapInstance, routeLayer, routeLine, routeReplayMarker, routeReplayTimer;
   let routeReplayPoints = [];
   let routeReplayIndex = 0;
@@ -616,7 +696,7 @@
 
   function defaultStartIso() {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() - 90);
     return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
   }
 
@@ -1253,6 +1333,7 @@
     renderActivityTable();
     renderRepTable();
     if (activeTabName() === 'charts') renderCharts();
+    if (activeTabName() === 'trends') renderTrends();
     if (activeTabName() === 'route') renderRouteReplay();
   }
 
@@ -1371,6 +1452,244 @@
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+
+
+  function startOfDay(date) {
+    const d = new Date(date);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+
+  function addDays(date, days) {
+    const d = new Date(date);
+    d.setDate(d.getDate() + days);
+    return d;
+  }
+
+  function startOfWeek(date) {
+    const d = startOfDay(date);
+    const day = d.getDay();
+    const diff = (day + 6) % 7;
+    d.setDate(d.getDate() - diff);
+    return d;
+  }
+
+  function startOfMonth(date) {
+    const d = startOfDay(date);
+    d.setDate(1);
+    return d;
+  }
+
+  function monthKey(date) {
+    const d = new Date(date);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function weekKey(date) {
+    const d = startOfWeek(date);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function niceMonthLabel(key) {
+    const parts = String(key).split('-');
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  }
+
+  function niceWeekLabel(key) {
+    return 'Week of ' + formatDate(key);
+  }
+
+  function percentChange(current, previous) {
+    if (!previous && !current) return { value: 0, label: '0.0%', cls: 'trend-neutral', sub: 'No sales in either period' };
+    if (!previous && current) return { value: 100, label: '+100.0%', cls: 'trend-positive', sub: '+' + current + ' sale(s) from zero last period' };
+    const change = ((current - previous) / previous) * 100;
+    const prefix = change > 0 ? '+' : '';
+    return {
+      value: change,
+      label: prefix + change.toFixed(1) + '%',
+      cls: change > 0 ? 'trend-positive' : (change < 0 ? 'trend-negative' : 'trend-neutral'),
+      sub: (current - previous === 0 ? 'No change' : ((current - previous) > 0 ? '+' : '') + (current - previous) + ' sale(s)')
+    };
+  }
+
+  function topBy(rows, keyGetter) {
+    const map = new Map();
+    rows.forEach(row => {
+      const key = keyGetter(row) || '—';
+      map.set(key, (map.get(key) || 0) + 1);
+    });
+    const sorted = Array.from(map.entries()).sort((a,b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+    return sorted[0] || ['—', 0];
+  }
+
+  function setTrendText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  }
+
+  function setTrendChange(id, subId, change) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = change.label;
+    el.classList.remove('trend-positive', 'trend-negative', 'trend-neutral');
+    el.classList.add(change.cls);
+    const sub = document.getElementById(subId);
+    if (sub) sub.textContent = change.sub;
+  }
+
+  function visibleSalesForTrends() {
+    // Use the current sales records after team, territory, rep, status, date, and search filters.
+    return renderedState.sales.slice();
+  }
+
+  function renderTrends() {
+    const sales = visibleSalesForTrends();
+    const now = startOfDay(new Date());
+
+    const thisWeekStart = startOfWeek(now);
+    const nextWeekStart = addDays(thisWeekStart, 7);
+    const lastWeekStart = addDays(thisWeekStart, -7);
+
+    const thisMonthStart = startOfMonth(now);
+    const nextMonthStart = new Date(thisMonthStart.getFullYear(), thisMonthStart.getMonth() + 1, 1);
+    const lastMonthStart = new Date(thisMonthStart.getFullYear(), thisMonthStart.getMonth() - 1, 1);
+
+    const inRange = (row, start, end) => {
+      const t = new Date(row.created_at);
+      return !isNaN(t.getTime()) && t >= start && t < end;
+    };
+
+    const thisWeekRows = sales.filter(s => inRange(s, thisWeekStart, nextWeekStart));
+    const lastWeekRows = sales.filter(s => inRange(s, lastWeekStart, thisWeekStart));
+    const thisMonthRows = sales.filter(s => inRange(s, thisMonthStart, nextMonthStart));
+    const lastMonthRows = sales.filter(s => inRange(s, lastMonthStart, thisMonthStart));
+
+    setTrendText('trend-this-week', thisWeekRows.length);
+    setTrendText('trend-last-week', lastWeekRows.length);
+    setTrendText('trend-this-month', thisMonthRows.length);
+    setTrendText('trend-last-month', lastMonthRows.length);
+    setTrendChange('trend-wow-change', 'trend-wow-sub', percentChange(thisWeekRows.length, lastWeekRows.length));
+    setTrendChange('trend-mom-change', 'trend-mom-sub', percentChange(thisMonthRows.length, lastMonthRows.length));
+
+    const [bestTeam, bestTeamCount] = topBy(thisWeekRows, row => teamLabel(getTeamSlug(row.raw || row) || selectedTeamFilter()));
+    const [bestTerritory, bestTerritoryCount] = topBy(thisWeekRows, row => row.territory);
+    const [bestRep, bestRepCount] = topBy(thisWeekRows, row => row.rep_name);
+
+    setTrendText('trend-best-team', bestTeam);
+    setTrendText('trend-best-team-sub', bestTeamCount + ' sale(s) this week');
+    setTrendText('trend-best-territory', bestTerritory);
+    setTrendText('trend-best-territory-sub', bestTerritoryCount + ' sale(s) this week');
+    setTrendText('trend-best-rep', bestRep);
+    setTrendText('trend-best-rep-sub', bestRepCount + ' sale(s) this week');
+
+    const sevenDaysAgo = addDays(now, -6);
+    const thirtyDaysAgo = addDays(now, -29);
+    const last7 = sales.filter(s => {
+      const t = new Date(s.created_at);
+      return !isNaN(t.getTime()) && t >= sevenDaysAgo && t < addDays(now, 1);
+    }).length;
+    const last30 = sales.filter(s => {
+      const t = new Date(s.created_at);
+      return !isNaN(t.getTime()) && t >= thirtyDaysAgo && t < addDays(now, 1);
+    }).length;
+    setTrendText('trend-pace', (last7 / 7).toFixed(1) + ' / ' + (last30 / 30).toFixed(1));
+    setTrendText('trend-pace-sub', 'Avg/day: last 7 days / last 30 days');
+
+    renderTrendCharts(sales);
+  }
+
+  function renderTrendCharts(sales) {
+    if (typeof Chart === 'undefined') {
+      chartUnavailable(els.trendDailyChart, 'Chart.js did not load.');
+      return;
+    }
+
+    [trendDailyChartInstance, trendWeeklyChartInstance, trendMonthlyChartInstance, trendOutcomeChartInstance].forEach(chart => {
+      if (chart) chart.destroy();
+    });
+
+    const dailyMap = new Map();
+    const weeklyMap = new Map();
+    const monthlyMap = new Map();
+    const outcomeMap = new Map();
+
+    sales.forEach(s => {
+      const date = new Date(s.created_at);
+      if (isNaN(date.getTime())) return;
+
+      const day = String(s.created_at || '').slice(0, 10);
+      const wk = weekKey(date);
+      const mo = monthKey(date);
+
+      dailyMap.set(day, (dailyMap.get(day) || 0) + 1);
+      weeklyMap.set(wk, (weeklyMap.get(wk) || 0) + 1);
+      monthlyMap.set(mo, (monthlyMap.get(mo) || 0) + 1);
+
+      if (!outcomeMap.has(wk)) outcomeMap.set(wk, { week: wk, submitted: 0, installed: 0, rescheduled: 0, canceled: 0 });
+      const bucket = outcomeMap.get(wk);
+      if (s.lifecycle_key === 'installed' || s.lifecycle_key === 'invoiced') bucket.installed++;
+      else if (s.lifecycle_key === 'needs_rescheduled') bucket.rescheduled++;
+      else if (s.lifecycle_key === 'canceled') bucket.canceled++;
+      else bucket.submitted++;
+    });
+
+    const dailyRows = Array.from(dailyMap.entries()).sort((a,b) => a[0].localeCompare(b[0])).map(([day, sales]) => ({ label: formatDate(day), sales }));
+    const weeklyRows = Array.from(weeklyMap.entries()).sort((a,b) => a[0].localeCompare(b[0])).map(([week, sales]) => ({ label: niceWeekLabel(week), sales }));
+    const monthlyRows = Array.from(monthlyMap.entries()).sort((a,b) => a[0].localeCompare(b[0])).map(([month, sales]) => ({ label: niceMonthLabel(month), sales }));
+    const outcomeRows = Array.from(outcomeMap.values()).sort((a,b) => a.week.localeCompare(b.week)).map(r => ({ ...r, label: niceWeekLabel(r.week) }));
+
+    const baseOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#cbd5e1' } } },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.12)' } },
+        y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.12)' }, beginAtZero: true }
+      }
+    };
+
+    if (els.trendDailyChart) {
+      trendDailyChartInstance = new Chart(els.trendDailyChart, {
+        type: 'line',
+        data: { labels: dailyRows.map(r => r.label), datasets: [{ label: 'Daily sales', data: dailyRows.map(r => r.sales), tension: .28, fill: false }] },
+        options: baseOptions
+      });
+    }
+
+    if (els.trendWeeklyChart) {
+      trendWeeklyChartInstance = new Chart(els.trendWeeklyChart, {
+        type: 'bar',
+        data: { labels: weeklyRows.map(r => r.label), datasets: [{ label: 'Weekly sales', data: weeklyRows.map(r => r.sales) }] },
+        options: baseOptions
+      });
+    }
+
+    if (els.trendMonthlyChart) {
+      trendMonthlyChartInstance = new Chart(els.trendMonthlyChart, {
+        type: 'bar',
+        data: { labels: monthlyRows.map(r => r.label), datasets: [{ label: 'Monthly sales', data: monthlyRows.map(r => r.sales) }] },
+        options: baseOptions
+      });
+    }
+
+    if (els.trendOutcomeChart) {
+      trendOutcomeChartInstance = new Chart(els.trendOutcomeChart, {
+        type: 'bar',
+        data: {
+          labels: outcomeRows.map(r => r.label),
+          datasets: [
+            { label: 'Submitted / pending', data: outcomeRows.map(r => r.submitted) },
+            { label: 'Installed / invoiced', data: outcomeRows.map(r => r.installed) },
+            { label: 'Needs rescheduled', data: outcomeRows.map(r => r.rescheduled) },
+            { label: 'Canceled', data: outcomeRows.map(r => r.canceled) }
+          ]
+        },
+        options: baseOptions
+      });
+    }
   }
 
 
@@ -1649,6 +1968,7 @@
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
     document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === 'tab-' + tabName));
     if (tabName === 'charts') setTimeout(renderCharts, 80);
+    if (tabName === 'trends') setTimeout(renderTrends, 80);
     if (tabName === 'route') setTimeout(renderRouteReplay, 120);
     if (tabName !== 'route') pauseRouteReplay();
   }
