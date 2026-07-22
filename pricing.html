@@ -249,7 +249,7 @@
       allowedTeams = [...new Set(allowedTeams.filter(t => VALID_TEAMS.includes(t)))];
       if (isCompanyAdmin) allowedTeams = [...VALID_TEAMS];
       access = { resolved:true, isCompanyAdmin, allowedTeams };
-      if (!isCompanyAdmin && !allowedTeams.length) throw new Error('Dashboard access denied. Add this user to dashboard_users.');
+      if (!isCompanyAdmin) throw new Error('Offers & Pricing is company-admin only. Sales team logins should use the locked team dashboard only.');
       return access;
     }
     function updateTeamFilter() { const options = access.isCompanyAdmin ? ['all', ...VALID_TEAMS] : access.allowedTeams; els.teamFilter.innerHTML = options.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(labelTeam(t))}</option>`).join(''); const desired = requestedTeam !== 'all' ? requestedTeam : (access.isCompanyAdmin ? 'all' : access.allowedTeams[0]); els.teamFilter.value = options.includes(desired) ? desired : options[0]; els.accessPill.textContent = access.isCompanyAdmin ? 'Company Admin' : 'Team Access: ' + access.allowedTeams.map(labelTeam).join(', '); }

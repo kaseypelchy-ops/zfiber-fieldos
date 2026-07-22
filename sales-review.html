@@ -407,6 +407,22 @@
       els.appShell.classList.remove('hidden');
     }
 
+
+    async function requireCompanyAdminPage() {
+      let isCompanyAdmin = false;
+      try {
+        const { data, error } = await supabaseClient.rpc('fieldos_dashboard_access');
+        const row = Array.isArray(data) ? data[0] : data;
+        if (!error && row) isCompanyAdmin = row.is_company_admin === true;
+      } catch (err) {
+        console.warn('Could not verify company admin access:', err);
+      }
+      if (!isCompanyAdmin) {
+        throw new Error('Sales Review & Invoicing is company-admin only. Sales team logins should use the locked team dashboard only.');
+      }
+      return true;
+    }
+
     async function loadData() {
       els.statusLine.textContent = 'Loading sales review and invoicing records...';
       els.statusLine.className = 'status-line';
@@ -818,7 +834,7 @@
     supabaseClient.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         showApp(session);
-        loadData().catch(showError);
+        requireCompanyAdminPage().then(loadData).catch(showError);
       } else {
         showAuth('Please sign in.');
       }
@@ -826,7 +842,7 @@
 
     (async function init() {
       const { data } = await supabaseClient.auth.getSession();
-      if (data?.session?.user) { showApp(data.session); await loadData(); }
+      if (data?.session?.user) { showApp(data.session); await requireCompanyAdminPage(); await loadData(); }
       else showAuth('Please sign in.');
     })().catch(err => showAuth(err.message || String(err)));
   </script>

@@ -268,7 +268,7 @@
       allowedTeams = [...new Set(allowedTeams)].filter(t => VALID_TEAMS.includes(t));
       if (isCompanyAdmin) allowedTeams = [...VALID_TEAMS];
       access = { resolved:true, isCompanyAdmin, allowedTeams };
-      if (!isCompanyAdmin && allowedTeams.length === 0) throw new Error('Dashboard access was not found for this login.');
+      if (!isCompanyAdmin) throw new Error('Setup Center is company-admin only. Sales team logins should use the locked team dashboard only.');
       return access;
     }
 
