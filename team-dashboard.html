@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Zito FieldOS Team Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <style>
     :root {
       --bg: #020617;
@@ -146,10 +149,34 @@
     .tab-btn.active { background: var(--accent); color: #082f49; border: none; font-weight: 900; }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+    .chart-box { position: relative; height: 330px; }
+    .route-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(350px, .65fr); gap: 18px; align-items: start; }
+    #route-map { height: 560px; border-radius: 18px; border: 1px solid var(--border); overflow: hidden; background: #020617; }
+    .route-controls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .route-controls button, .route-controls select { width: 100%; }
+    .route-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .route-stat { background: rgba(30,41,59,.55); border: 1px solid rgba(148,163,184,.16); border-radius: 16px; padding: 12px; }
+    .route-stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+    .route-stat-value { margin-top: 7px; font-size: 22px; font-weight: 900; }
+    .current-stop { background: rgba(34,211,238,.10); border: 1px solid rgba(34,211,238,.28); border-radius: 16px; padding: 14px; margin-bottom: 14px; }
+    .current-stop-title { font-weight: 900; margin-bottom: 8px; }
+    .current-stop-sub { color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .route-stop-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; padding-right: 4px; }
+    .route-stop { border: 1px solid rgba(148,163,184,.12); background: rgba(30,41,59,.42); border-radius: 14px; padding: 11px; }
+    .route-stop.active { border-color: rgba(34,211,238,.42); background: rgba(34,211,238,.10); }
+    .route-stop-title { font-weight: 900; font-size: 13px; line-height: 1.35; }
+    .route-stop-sub { color: var(--muted); margin-top: 5px; font-size: 12px; line-height: 1.35; }
+    .leaflet-container { background: #020617; color: #0f172a; }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #0f172a; color: #e5e7eb; border: 1px solid #1e293b; }
+    .leaflet-popup-content { font-size: 13px; line-height: 1.4; }
+
     @media (max-width: 1200px) {
       .controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .grid-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .grid-2 { grid-template-columns: 1fr; }
+      .grid-2, .charts-grid, .route-grid { grid-template-columns: 1fr; }
+      .route-stats, .route-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 700px) {
       body { padding: 12px; }
@@ -222,6 +249,8 @@
         <button class="tab-btn" data-tab="sales" type="button">Sales Status</button>
         <button class="tab-btn" data-tab="activity" type="button">Recent Activity</button>
         <button class="tab-btn" data-tab="reps" type="button">Rep Performance</button>
+        <button class="tab-btn" data-tab="charts" type="button">Charts</button>
+        <button class="tab-btn" data-tab="route" type="button">Route Replay</button>
       </div>
 
       <div id="status-line" class="status-line">Waiting for data.</div>
@@ -325,6 +354,78 @@
           </div>
         </div>
       </div>
+
+      <div id="tab-charts" class="tab-panel">
+        <div class="charts-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Sales Trend</h2><div class="panel-sub">Daily submitted sales for the selected team and filters.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="sales-trend-chart"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Status Mix</h2><div class="panel-sub">Current sales lifecycle mix for the selected team.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="status-mix-chart"></canvas></div>
+          </div>
+        </div>
+        <div class="charts-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Territory Performance</h2><div class="panel-sub">Sales and worked doors by territory.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="territory-performance-chart"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Rep Performance</h2><div class="panel-sub">Sales and worked doors by rep.</div></div>
+            </div>
+            <div class="chart-box"><canvas id="rep-performance-chart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-route" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Route Replay</h2>
+              <div class="panel-sub">Replay the selected team's field activity in time order using the current date, rep, territory, and search filters.</div>
+            </div>
+          </div>
+
+          <div class="route-controls">
+            <button id="route-render-btn" class="primary" type="button">Render Route</button>
+            <button id="route-play-btn" type="button">Play</button>
+            <button id="route-pause-btn" type="button">Pause</button>
+            <button id="route-reset-btn" type="button">Reset</button>
+            <select id="route-speed">
+              <option value="1200">Slow</option>
+              <option value="700" selected>Normal</option>
+              <option value="300">Fast</option>
+            </select>
+          </div>
+
+          <div class="route-stats">
+            <div class="route-stat"><div class="route-stat-label">Stops</div><div id="route-stat-stops" class="route-stat-value">0</div></div>
+            <div class="route-stat"><div class="route-stat-label">Doors Worked</div><div id="route-stat-worked" class="route-stat-value">0</div></div>
+            <div class="route-stat"><div class="route-stat-label">Sales</div><div id="route-stat-sales" class="route-stat-value">0</div></div>
+            <div class="route-stat"><div class="route-stat-label">Close Rate</div><div id="route-stat-close" class="route-stat-value">0.0%</div></div>
+          </div>
+
+          <div class="route-grid">
+            <div id="route-map"></div>
+            <div>
+              <div id="route-current-stop" class="current-stop">
+                <div class="current-stop-title">No route loaded</div>
+                <div class="current-stop-sub">Choose filters, then click Render Route.</div>
+              </div>
+              <div id="route-stop-list" class="route-stop-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -382,7 +483,23 @@
     territorySummaryList: document.getElementById('territory-summary-list'),
     exportSales: document.getElementById('export-sales-btn'),
     exportActivity: document.getElementById('export-activity-btn'),
-    exportReps: document.getElementById('export-reps-btn')
+    exportReps: document.getElementById('export-reps-btn'),
+    salesTrendChart: document.getElementById('sales-trend-chart'),
+    statusMixChart: document.getElementById('status-mix-chart'),
+    territoryPerformanceChart: document.getElementById('territory-performance-chart'),
+    repPerformanceChart: document.getElementById('rep-performance-chart'),
+    routeMap: document.getElementById('route-map'),
+    routeRender: document.getElementById('route-render-btn'),
+    routePlay: document.getElementById('route-play-btn'),
+    routePause: document.getElementById('route-pause-btn'),
+    routeReset: document.getElementById('route-reset-btn'),
+    routeSpeed: document.getElementById('route-speed'),
+    routeStops: document.getElementById('route-stat-stops'),
+    routeWorked: document.getElementById('route-stat-worked'),
+    routeSales: document.getElementById('route-stat-sales'),
+    routeClose: document.getElementById('route-stat-close'),
+    routeCurrentStop: document.getElementById('route-current-stop'),
+    routeStopList: document.getElementById('route-stop-list')
   };
 
   let dashboardAccess = { resolved: false, email: '', isCompanyAdmin: false, allowedTeams: [] };
@@ -390,6 +507,10 @@
   let renderedState = { sales: [], activity: [], reps: [] };
   let refreshTimer = null;
   let loading = false;
+  let salesTrendChartInstance, statusMixChartInstance, territoryPerformanceChartInstance, repPerformanceChartInstance;
+  let routeMapInstance, routeLayer, routeLine, routeReplayMarker, routeReplayTimer;
+  let routeReplayPoints = [];
+  let routeReplayIndex = 0;
 
   function idKey(value) {
     return value === null || value === undefined ? '' : String(value).trim();
@@ -454,6 +575,25 @@
     const t = value ? new Date(value).getTime() : 0;
     return Number.isFinite(t) ? t : 0;
   }
+
+  function getLatLng(row, linkedAddress = null) {
+    const lat = Number(firstNonEmpty(row?.lat, row?.latitude, row?.gps_lat, row?.rep_lat, linkedAddress?.lat, linkedAddress?.latitude));
+    const lng = Number(firstNonEmpty(row?.lng, row?.lon, row?.longitude, row?.gps_lng, row?.rep_lng, linkedAddress?.lng, linkedAddress?.lon, linkedAddress?.longitude));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return [lat, lng];
+  }
+
+  function activeTabName() {
+    const active = document.querySelector('.tab-btn.active[data-tab]');
+    return active ? active.dataset.tab : 'overview';
+  }
+
+  function chartUnavailable(canvas, message) {
+    if (!canvas || !canvas.parentElement) return;
+    canvas.parentElement.innerHTML = '<div class="notice warn">' + escapeHtml(message) + '</div>';
+  }
+
 
   function money(value) {
     if (value === null || value === undefined || value === '') return '';
@@ -1053,6 +1193,8 @@
     renderSalesTable();
     renderActivityTable();
     renderRepTable();
+    if (activeTabName() === 'charts') renderCharts();
+    if (activeTabName() === 'route') renderRouteReplay();
   }
 
   function setText(id, value) {
@@ -1172,9 +1314,284 @@
     URL.revokeObjectURL(url);
   }
 
+
+  function renderCharts() {
+    if (typeof Chart === 'undefined') {
+      chartUnavailable(els.salesTrendChart, 'Chart.js did not load.');
+      return;
+    }
+
+    [salesTrendChartInstance, statusMixChartInstance, territoryPerformanceChartInstance, repPerformanceChartInstance].forEach(chart => {
+      if (chart) chart.destroy();
+    });
+
+    const trendMap = new Map();
+    renderedState.sales.forEach(s => {
+      const day = String(s.created_at || '').slice(0, 10);
+      if (!day) return;
+      trendMap.set(day, (trendMap.get(day) || 0) + 1);
+    });
+    const trendRows = Array.from(trendMap.entries()).sort((a,b) => a[0].localeCompare(b[0])).map(([day, sales]) => ({ label: formatDate(day), sales }));
+
+    const statusMap = new Map();
+    renderedState.sales.forEach(s => {
+      statusMap.set(s.lifecycle_label, (statusMap.get(s.lifecycle_label) || 0) + 1);
+    });
+    const statusRows = Array.from(statusMap.entries()).sort((a,b) => b[1] - a[1]);
+
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    const territoryMap = new Map();
+    state.address_events.forEach(ev => {
+      if (!rowMatchesUi(ev, addressMap, slotMap)) return;
+      const territory = getTerritory(ev, addressMap, slotMap) || 'Unknown';
+      const key = normalizeTerritory(territory);
+      if (!territoryMap.has(key)) territoryMap.set(key, { label: territory, worked: 0, sales: 0 });
+      territoryMap.get(key).worked++;
+    });
+    renderedState.sales.forEach(s => {
+      const territory = s.territory || 'Unknown';
+      const key = normalizeTerritory(territory);
+      if (!territoryMap.has(key)) territoryMap.set(key, { label: territory, worked: 0, sales: 0 });
+      territoryMap.get(key).sales++;
+    });
+    const territoryRows = Array.from(territoryMap.values()).sort((a,b) => b.sales - a.sales || b.worked - a.worked).slice(0, 12);
+
+    const repRows = renderedState.reps.slice(0, 12);
+
+    const chartDefaults = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#cbd5e1' } }
+      },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.12)' } },
+        y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.12)' }, beginAtZero: true }
+      }
+    };
+
+    if (els.salesTrendChart) {
+      salesTrendChartInstance = new Chart(els.salesTrendChart, {
+        type: 'line',
+        data: {
+          labels: trendRows.map(r => r.label),
+          datasets: [{ label: 'Sales', data: trendRows.map(r => r.sales), tension: .28, fill: false }]
+        },
+        options: chartDefaults
+      });
+    }
+
+    if (els.statusMixChart) {
+      statusMixChartInstance = new Chart(els.statusMixChart, {
+        type: 'doughnut',
+        data: {
+          labels: statusRows.map(r => r[0]),
+          datasets: [{ label: 'Sales', data: statusRows.map(r => r[1]) }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#cbd5e1' } } } }
+      });
+    }
+
+    if (els.territoryPerformanceChart) {
+      territoryPerformanceChartInstance = new Chart(els.territoryPerformanceChart, {
+        type: 'bar',
+        data: {
+          labels: territoryRows.map(r => r.label),
+          datasets: [
+            { label: 'Sales', data: territoryRows.map(r => r.sales) },
+            { label: 'Worked doors', data: territoryRows.map(r => r.worked) }
+          ]
+        },
+        options: chartDefaults
+      });
+    }
+
+    if (els.repPerformanceChart) {
+      repPerformanceChartInstance = new Chart(els.repPerformanceChart, {
+        type: 'bar',
+        data: {
+          labels: repRows.map(r => r.rep),
+          datasets: [
+            { label: 'Sales', data: repRows.map(r => r.sales) },
+            { label: 'Worked doors', data: repRows.map(r => r.worked) }
+          ]
+        },
+        options: chartDefaults
+      });
+    }
+  }
+
+  function routeRecords() {
+    const f = filters();
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+
+    return state.address_events
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .map(row => {
+        const linked = getLinkedAddress(row, addressMap);
+        const coords = getLatLng(row, linked);
+        const status = String(row.status || '').toLowerCase().trim();
+        return {
+          raw: row,
+          coords,
+          time: row.created_at,
+          rep: getRepName(row) || '—',
+          territory: getTerritory(row, addressMap, slotMap) || '—',
+          address: buildAddressLabel(row, addressMap),
+          status: status || '—',
+          note: firstNonEmpty(row.note, row.notes, ''),
+          isSale: ['mega','gig'].includes(status)
+        };
+      })
+      .filter(p => p.coords && (!f.search || [p.rep, p.territory, p.address, p.status, p.note].join(' ').toLowerCase().includes(f.search)))
+      .sort((a,b) => timeValue(a.time) - timeValue(b.time));
+  }
+
+  function initializeRouteMap() {
+    if (typeof L === 'undefined' || !els.routeMap) return false;
+    if (routeMapInstance) {
+      setTimeout(() => routeMapInstance.invalidateSize(), 80);
+      return true;
+    }
+    routeMapInstance = L.map('route-map', { scrollWheelZoom: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(routeMapInstance);
+    routeMapInstance.setView([39.5, -98.35], 4);
+    routeLayer = L.layerGroup().addTo(routeMapInstance);
+    return true;
+  }
+
+  function renderRouteReplay() {
+    if (!initializeRouteMap()) {
+      if (els.routeCurrentStop) {
+        els.routeCurrentStop.innerHTML = '<div class="current-stop-title">Map library did not load</div><div class="current-stop-sub">Check that Leaflet is loading from the CDN.</div>';
+      }
+      return;
+    }
+
+    pauseRouteReplay();
+    routeReplayPoints = routeRecords();
+    routeReplayIndex = 0;
+
+    if (routeLayer) routeLayer.clearLayers();
+    if (routeLine) { routeMapInstance.removeLayer(routeLine); routeLine = null; }
+    if (routeReplayMarker) { routeMapInstance.removeLayer(routeReplayMarker); routeReplayMarker = null; }
+
+    const worked = routeReplayPoints.length;
+    const sales = routeReplayPoints.filter(p => p.isSale).length;
+    if (els.routeStops) els.routeStops.textContent = String(routeReplayPoints.length);
+    if (els.routeWorked) els.routeWorked.textContent = String(worked);
+    if (els.routeSales) els.routeSales.textContent = String(sales);
+    if (els.routeClose) els.routeClose.textContent = worked ? ((sales / worked) * 100).toFixed(1) + '%' : '0.0%';
+
+    if (!routeReplayPoints.length) {
+      routeMapInstance.setView([39.5, -98.35], 4);
+      if (els.routeCurrentStop) {
+        els.routeCurrentStop.innerHTML = '<div class="current-stop-title">No mappable activity</div><div class="current-stop-sub">No records with latitude/longitude matched the current filters.</div>';
+      }
+      if (els.routeStopList) els.routeStopList.innerHTML = '<div class="notice warn">No route stops found for the current filters.</div>';
+      return;
+    }
+
+    const bounds = [];
+    routeReplayPoints.forEach((point, index) => {
+      bounds.push(point.coords);
+      const marker = L.marker(point.coords).addTo(routeLayer);
+      marker.bindPopup(
+        '<strong>' + escapeHtml(index + 1 + '. ' + point.address) + '</strong><br>' +
+        escapeHtml(formatDateTime(point.time)) + '<br>' +
+        'Rep: ' + escapeHtml(point.rep) + '<br>' +
+        'Status: ' + escapeHtml(point.status)
+      );
+    });
+
+    routeLine = L.polyline(routeReplayPoints.map(p => p.coords), { weight: 3, opacity: .75 }).addTo(routeMapInstance);
+    routeMapInstance.fitBounds(bounds, { padding: [30, 30] });
+    setTimeout(() => routeMapInstance.invalidateSize(), 80);
+
+    renderRouteStopList();
+    showRouteStop(0);
+  }
+
+  function renderRouteStopList() {
+    if (!els.routeStopList) return;
+    els.routeStopList.innerHTML = routeReplayPoints.map((point, index) => `
+      <div class="route-stop ${index === routeReplayIndex ? 'active' : ''}" data-route-stop="${index}">
+        <div class="route-stop-title">${escapeHtml(index + 1 + '. ' + point.address)}</div>
+        <div class="route-stop-sub">${escapeHtml(formatDateTime(point.time))} • ${escapeHtml(point.rep)} • ${escapeHtml(point.status)}</div>
+      </div>
+    `).join('');
+  }
+
+  function showRouteStop(index) {
+    if (!routeReplayPoints.length) return;
+    routeReplayIndex = Math.max(0, Math.min(index, routeReplayPoints.length - 1));
+    const point = routeReplayPoints[routeReplayIndex];
+
+    if (routeReplayMarker) routeMapInstance.removeLayer(routeReplayMarker);
+    routeReplayMarker = L.circleMarker(point.coords, { radius: 10, weight: 3 }).addTo(routeMapInstance);
+    routeReplayMarker.bindPopup(
+      '<strong>' + escapeHtml(point.address) + '</strong><br>' +
+      escapeHtml(formatDateTime(point.time)) + '<br>' +
+      'Rep: ' + escapeHtml(point.rep) + '<br>' +
+      'Status: ' + escapeHtml(point.status)
+    ).openPopup();
+
+    routeMapInstance.panTo(point.coords);
+
+    if (els.routeCurrentStop) {
+      els.routeCurrentStop.innerHTML =
+        '<div class="current-stop-title">' + escapeHtml((routeReplayIndex + 1) + ' of ' + routeReplayPoints.length + ' • ' + point.address) + '</div>' +
+        '<div class="current-stop-sub">' +
+          escapeHtml(formatDateTime(point.time)) + '<br>' +
+          'Rep: ' + escapeHtml(point.rep) + '<br>' +
+          'Territory: ' + escapeHtml(point.territory) + '<br>' +
+          'Status: ' + escapeHtml(point.status) + (point.note ? '<br>Note: ' + escapeHtml(point.note) : '') +
+        '</div>';
+    }
+
+    renderRouteStopList();
+  }
+
+  function playRouteReplay() {
+    if (!routeReplayPoints.length) renderRouteReplay();
+    if (!routeReplayPoints.length) return;
+    pauseRouteReplay();
+    const step = () => {
+      showRouteStop(routeReplayIndex);
+      routeReplayIndex += 1;
+      if (routeReplayIndex >= routeReplayPoints.length) {
+        pauseRouteReplay();
+        routeReplayIndex = routeReplayPoints.length - 1;
+      }
+    };
+    step();
+    routeReplayTimer = setInterval(step, Number(els.routeSpeed?.value || 700));
+  }
+
+  function pauseRouteReplay() {
+    if (routeReplayTimer) {
+      clearInterval(routeReplayTimer);
+      routeReplayTimer = null;
+    }
+  }
+
+  function resetRouteReplay() {
+    pauseRouteReplay();
+    routeReplayIndex = 0;
+    if (routeReplayPoints.length) showRouteStop(0);
+  }
+
   function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
     document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === 'tab-' + tabName));
+    if (tabName === 'charts') setTimeout(renderCharts, 80);
+    if (tabName === 'route') setTimeout(renderRouteReplay, 120);
+    if (tabName !== 'route') pauseRouteReplay();
   }
 
   async function boot() {
@@ -1209,6 +1626,18 @@
   els.exportSales.addEventListener('click', () => csvDownload(PAGE_TEAM + '_visible_sales.csv', renderedState.sales));
   els.exportActivity.addEventListener('click', () => csvDownload(PAGE_TEAM + '_recent_activity.csv', renderedState.activity));
   els.exportReps.addEventListener('click', () => csvDownload(PAGE_TEAM + '_rep_summary.csv', renderedState.reps));
+  if (els.routeRender) els.routeRender.addEventListener('click', renderRouteReplay);
+  if (els.routePlay) els.routePlay.addEventListener('click', playRouteReplay);
+  if (els.routePause) els.routePause.addEventListener('click', pauseRouteReplay);
+  if (els.routeReset) els.routeReset.addEventListener('click', resetRouteReplay);
+  if (els.routeStopList) {
+    els.routeStopList.addEventListener('click', e => {
+      const row = e.target.closest('[data-route-stop]');
+      if (!row) return;
+      const index = Number(row.getAttribute('data-route-stop'));
+      if (Number.isFinite(index)) showRouteStop(index);
+    });
+  }
 
   els.teamPill.textContent = teamLabel();
   els.authTitle.textContent = teamLabel() + ' Dashboard Login';
