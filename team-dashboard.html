@@ -78,7 +78,7 @@
     }
     .controls {
       display: grid;
-      grid-template-columns: 1.15fr 1fr 1fr 1fr 1fr auto;
+      grid-template-columns: 1.05fr 1.05fr 1fr 1fr 1fr 1fr auto;
       gap: 10px;
       margin-bottom: 18px;
     }
@@ -190,7 +190,7 @@
     <div class="auth-card">
       <div class="eyebrow">Zito FieldOS</div>
       <h2 id="auth-title">Team Dashboard Login</h2>
-      <p class="sub" id="auth-subtitle">Sign in with your approved dashboard email. This page is locked to one sales company.</p>
+      <p class="sub" id="auth-subtitle">Sign in to view sales performance, route replay, charts, and rep activity.</p>
       <div class="auth-grid">
         <input id="login-email" type="email" placeholder="Email" autocomplete="username" />
         <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
@@ -206,7 +206,7 @@
         <div>
           <div class="eyebrow">Zito FieldOS</div>
           <h1 id="dashboard-title">Sales Team Dashboard</h1>
-          <p id="dashboard-subtitle" class="sub">Locked team view for sales, install status, recent activity, and rep performance.</p>
+          <p id="dashboard-subtitle" class="sub">Sales performance view for sales, install status, recent activity, charts, route replay, and rep performance.</p>
         </div>
         <div class="auth-top-right">
           <div id="team-pill" class="pill">Team loading</div>
@@ -215,11 +215,12 @@
         </div>
       </div>
 
-      <div id="locked-notice" class="notice">
-        This is a dedicated sales-team page. There is no company selector and no company admin data on this screen.
+      <div id="dashboard-notice" class="notice">
+        Use the filters below to review sales, activity, rep performance, charts, and route replay.
       </div>
 
       <div class="panel controls">
+        <select id="team-filter"><option value="all">All Sales Teams</option></select>
         <select id="territory-filter"><option value="all">All Territories</option></select>
         <select id="rep-filter"><option value="all">All Reps</option></select>
         <select id="status-filter">
@@ -450,7 +451,12 @@
   const urlParams = new URLSearchParams(window.location.search);
   const hardcodedTeam = (window.FIELDOS_TEAM_SLUG || '').toLowerCase().trim();
   const urlTeam = (urlParams.get('team') || '').toLowerCase().trim();
-  const PAGE_TEAM = VALID_TEAM_SLUGS.includes(hardcodedTeam) ? hardcodedTeam : (VALID_TEAM_SLUGS.includes(urlTeam) ? urlTeam : 'fiber');
+
+  // Default team-dashboard.html is the company sales dashboard.
+  // Individual vendor pages still pass ?team=fiber, ?team=sfi, or ?team=lynxx.
+  const PAGE_SCOPE = VALID_TEAM_SLUGS.includes(hardcodedTeam)
+    ? hardcodedTeam
+    : (VALID_TEAM_SLUGS.includes(urlTeam) ? urlTeam : 'all');
 
   const els = {
     authScreen: document.getElementById('auth-screen'),
@@ -466,8 +472,9 @@
     teamPill: document.getElementById('team-pill'),
     dashboardTitle: document.getElementById('dashboard-title'),
     dashboardSubtitle: document.getElementById('dashboard-subtitle'),
-    lockedNotice: document.getElementById('locked-notice'),
+    dashboardNotice: document.getElementById('dashboard-notice'),
     statusLine: document.getElementById('status-line'),
+    team: document.getElementById('team-filter'),
     territory: document.getElementById('territory-filter'),
     rep: document.getElementById('rep-filter'),
     status: document.getElementById('status-filter'),
@@ -618,11 +625,39 @@
     if (!els.end.value) els.end.value = todayIso();
   }
 
-  function teamLabel() {
-    return TEAM_LABELS[PAGE_TEAM] || PAGE_TEAM;
+  function selectedTeamFilter() {
+    if (PAGE_SCOPE !== 'all') return PAGE_SCOPE;
+    const value = normalizeTeamSlug(els.team?.value || 'all');
+    return value === 'all' || VALID_TEAM_SLUGS.includes(value) ? value : 'all';
+  }
+
+  function teamLabel(teamSlug = selectedTeamFilter()) {
+    if (teamSlug === 'all') return 'All Sales Teams';
+    return TEAM_LABELS[teamSlug] || teamSlug || 'Sales Team';
+  }
+
+  function updateTeamFilterOptions() {
+    if (!els.team) return;
+
+    const availableTeams = dashboardAccess.isCompanyAdmin
+      ? ['all', ...VALID_TEAM_SLUGS]
+      : (dashboardAccess.allowedTeams || []).filter(t => VALID_TEAM_SLUGS.includes(t));
+
+    if (PAGE_SCOPE !== 'all') {
+      els.team.innerHTML = '<option value="' + PAGE_SCOPE + '">' + escapeHtml(teamLabel(PAGE_SCOPE)) + '</option>';
+      els.team.value = PAGE_SCOPE;
+      els.team.disabled = true;
+      return;
+    }
+
+    const options = availableTeams.length ? availableTeams : ['all'];
+    els.team.innerHTML = options.map(team => '<option value="' + team + '">' + escapeHtml(teamLabel(team)) + '</option>').join('');
+    if (!options.includes(els.team.value)) els.team.value = options[0] || 'all';
+    els.team.disabled = !dashboardAccess.isCompanyAdmin && options.length <= 1;
   }
 
   function allowedTerritoryKeysForTeam(teamSlug) {
+    if (teamSlug === 'all') return null;
     return (TEAM_TERRITORIES[teamSlug] || []).map(normalizeTerritory);
   }
 
@@ -648,11 +683,15 @@
   }
 
   function teamRow(row, addressMap = null, slotMap = null) {
+    const selectedTeam = selectedTeamFilter();
+    if (selectedTeam === 'all') return true;
+
     const rowTeam = getTeamSlug(row, addressMap, slotMap);
-    if (rowTeam) return rowTeam === PAGE_TEAM;
+    if (rowTeam) return rowTeam === selectedTeam;
+
     const territory = normalizeTerritory(getTerritory(row, addressMap, slotMap));
-    const allowed = allowedTerritoryKeysForTeam(PAGE_TEAM);
-    return territory ? allowed.includes(territory) : true;
+    const allowed = allowedTerritoryKeysForTeam(selectedTeam);
+    return territory && allowed ? allowed.includes(territory) : true;
   }
 
   function buildAddressMap(rows = state.addresses) {
@@ -841,7 +880,8 @@
   }
 
   function userCanViewPageTeam() {
-    return dashboardAccess.isCompanyAdmin || (dashboardAccess.allowedTeams || []).includes(PAGE_TEAM);
+    if (PAGE_SCOPE === 'all') return dashboardAccess.isCompanyAdmin || (dashboardAccess.allowedTeams || []).length > 0;
+    return dashboardAccess.isCompanyAdmin || (dashboardAccess.allowedTeams || []).includes(PAGE_SCOPE);
   }
 
   function showAuth(message) {
@@ -856,10 +896,15 @@
     els.dashboardShell.classList.remove('hidden');
     const email = String(session?.user?.email || '').trim().toLowerCase();
     els.sessionEmail.textContent = email || 'Signed in';
-    els.teamPill.textContent = teamLabel();
-    els.dashboardTitle.textContent = teamLabel() + ' Dashboard';
-    els.authTitle.textContent = teamLabel() + ' Dashboard Login';
-    els.lockedNotice.textContent = 'This page is locked to ' + teamLabel() + '. There is no company selector, and company admin tools are not loaded here.';
+
+    updateTeamFilterOptions();
+
+    const currentLabel = teamLabel();
+    els.teamPill.textContent = currentLabel;
+    els.dashboardTitle.textContent = (selectedTeamFilter() === 'all' ? 'Company Sales Dashboard' : currentLabel + ' Dashboard');
+    els.authTitle.textContent = 'Sales Dashboard Login';
+    els.dashboardSubtitle.textContent = 'Sales performance view for sales, install status, recent activity, charts, route replay, and rep performance.';
+    els.dashboardNotice.textContent = 'Use the filters below to review sales, activity, rep performance, charts, and route replay.';
   }
 
   async function signIn() {
@@ -941,7 +986,7 @@
 
       await resolveAccess(true);
       if (!userCanViewPageTeam()) {
-        showAuth('Access denied. This login is not assigned to ' + teamLabel() + '.');
+        showAuth('Access denied for this sales dashboard.');
         return;
       }
 
@@ -952,19 +997,21 @@
       els.statusLine.classList.remove('error');
       els.statusLine.textContent = 'Loading ' + teamLabel() + ' data...';
 
-      const teamTerritories = allowedTerritoryKeysForTeam(PAGE_TEAM);
-      const addressFilters = [
-        { type: 'eq', column: 'team_slug', value: PAGE_TEAM }
-      ];
-      const repFilters = [
-        { type: 'eq', column: 'team_slug', value: PAGE_TEAM }
-      ];
+      updateTeamFilterOptions();
+      const selectedTeam = selectedTeamFilter();
+
+      const addressFilters = [];
+      const repFilters = [];
       const eventFilters = [];
       const salesFilters = [];
-      const slotFilters = [
-        { type: 'eq', column: 'team_slug', value: PAGE_TEAM }
-      ];
+      const slotFilters = [];
       const bookingFilters = [];
+
+      if (selectedTeam !== 'all') {
+        addressFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeam });
+        repFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeam });
+        slotFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeam });
+      }
 
       // Keep date filtering, but do not rely only on team_slug for sales/orders.
       // RLS should still be the hard security boundary for team users.
@@ -1003,6 +1050,8 @@
       populateFilters();
       renderAll();
 
+      els.teamPill.textContent = teamLabel();
+      els.dashboardTitle.textContent = (selectedTeamFilter() === 'all' ? 'Company Sales Dashboard' : teamLabel() + ' Dashboard');
       els.statusLine.textContent = teamLabel() + ' loaded. ' + renderedState.sales.length + ' visible sale(s). Last refresh: ' + new Date().toLocaleTimeString();
     } catch (err) {
       console.error(err);
@@ -1019,18 +1068,25 @@
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
 
+    const teamAddresses = state.addresses.filter(r => teamRow(r, addressMap, slotMap));
+    const teamSales = state.sales_orders.filter(r => teamRow(r, addressMap, slotMap));
+    const teamEvents = state.address_events.filter(r => teamRow(r, addressMap, slotMap));
+    const teamSlots = state.schedule_slots.filter(r => teamRow(r, addressMap, slotMap));
+    const teamReps = state.reps.filter(r => teamRow(r, addressMap, slotMap));
+    const teamBookings = state.schedule_bookings.filter(r => teamRow(r, addressMap, slotMap));
+
     const territories = [...new Set([
-      ...state.addresses.map(r => r.territory),
-      ...state.sales_orders.map(r => getTerritory(r, addressMap, slotMap)),
-      ...state.address_events.map(r => getTerritory(r, addressMap, slotMap)),
-      ...state.schedule_slots.map(r => r.territory)
+      ...teamAddresses.map(r => r.territory),
+      ...teamSales.map(r => getTerritory(r, addressMap, slotMap)),
+      ...teamEvents.map(r => getTerritory(r, addressMap, slotMap)),
+      ...teamSlots.map(r => r.territory)
     ].filter(Boolean))].sort((a,b) => normalizeTerritory(a).localeCompare(normalizeTerritory(b)));
 
     const reps = [...new Set([
-      ...state.reps.map(r => getRepName(r)),
-      ...state.sales_orders.map(r => getRepName(r)),
-      ...state.address_events.map(r => getRepName(r)),
-      ...state.schedule_bookings.map(r => getRepName(r))
+      ...teamReps.map(r => getRepName(r)),
+      ...teamSales.map(r => getRepName(r)),
+      ...teamEvents.map(r => getRepName(r)),
+      ...teamBookings.map(r => getRepName(r))
     ].filter(Boolean))].sort();
 
     els.territory.innerHTML = '<option value="all">All Territories</option>' + territories.map(t => '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>').join('');
@@ -1042,6 +1098,7 @@
 
   function rowMatchesUi(row, addressMap, slotMap) {
     const f = filters();
+    if (!teamRow(row, addressMap, slotMap)) return false;
     if (f.territory !== 'all' && normalizeTerritory(getTerritory(row, addressMap, slotMap)) !== normalizeTerritory(f.territory)) return false;
     if (f.rep !== 'all' && getRepName(row) !== f.rep) return false;
     return true;
@@ -1169,6 +1226,8 @@
   }
 
   function renderAll() {
+    if (els.teamPill) els.teamPill.textContent = teamLabel();
+    if (els.dashboardTitle) els.dashboardTitle.textContent = (selectedTeamFilter() === 'all' ? 'Company Sales Dashboard' : teamLabel() + ' Dashboard');
     renderedState.sales = saleRecords();
     renderedState.activity = activityRecords();
     renderedState.reps = repRecords();
@@ -1602,7 +1661,7 @@
     }
     await resolveAccess(true);
     if (!userCanViewPageTeam()) {
-      showAuth('Access denied. This login is not assigned to ' + teamLabel() + '.');
+      showAuth('Access denied for this sales dashboard.');
       return;
     }
     showDashboard(data.session);
@@ -1614,6 +1673,7 @@
   els.loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
   els.logoutBtn.addEventListener('click', signOut);
   els.refresh.addEventListener('click', loadData);
+  if (els.team) els.team.addEventListener('change', () => { if (els.territory) els.territory.value = 'all'; if (els.rep) els.rep.value = 'all'; populateFilters(); renderAll(); });
   [els.territory, els.rep, els.status].forEach(el => el.addEventListener('change', renderAll));
   [els.search].forEach(el => el.addEventListener('input', renderAll));
   [els.start, els.end].forEach(el => el.addEventListener('change', loadData));
@@ -1623,9 +1683,9 @@
     if (ms) refreshTimer = setInterval(loadData, ms);
   });
   document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-  els.exportSales.addEventListener('click', () => csvDownload(PAGE_TEAM + '_visible_sales.csv', renderedState.sales));
-  els.exportActivity.addEventListener('click', () => csvDownload(PAGE_TEAM + '_recent_activity.csv', renderedState.activity));
-  els.exportReps.addEventListener('click', () => csvDownload(PAGE_TEAM + '_rep_summary.csv', renderedState.reps));
+  els.exportSales.addEventListener('click', () => csvDownload(selectedTeamFilter() + '_visible_sales.csv', renderedState.sales));
+  els.exportActivity.addEventListener('click', () => csvDownload(selectedTeamFilter() + '_recent_activity.csv', renderedState.activity));
+  els.exportReps.addEventListener('click', () => csvDownload(selectedTeamFilter() + '_rep_summary.csv', renderedState.reps));
   if (els.routeRender) els.routeRender.addEventListener('click', renderRouteReplay);
   if (els.routePlay) els.routePlay.addEventListener('click', playRouteReplay);
   if (els.routePause) els.routePause.addEventListener('click', pauseRouteReplay);
@@ -1640,8 +1700,8 @@
   }
 
   els.teamPill.textContent = teamLabel();
-  els.authTitle.textContent = teamLabel() + ' Dashboard Login';
-  els.authSubtitle.textContent = 'Sign in to view the locked ' + teamLabel() + ' sales dashboard.';
+  els.authTitle.textContent = 'Sales Dashboard Login';
+  els.authSubtitle.textContent = 'Sign in to view sales performance, route replay, charts, and rep activity.';
   setDefaultDates();
   boot();
 })();
