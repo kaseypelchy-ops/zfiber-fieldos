@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FieldOS Offers & Pricing</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { --bg:#020617; --panel:#0f172a; --muted:#94a3b8; --text:#e5e7eb; --border:#1e293b; --accent:#22d3ee; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --radius:18px; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); padding:22px; }
+    .wrap { max-width:1420px; margin:0 auto; }
+    h1,h2,h3,p { margin:0; }
+    .hidden { display:none !important; }
+    .top { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+    .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.2em; font-size:12px; margin-bottom:8px; }
+    .sub { color:var(--muted); margin-top:8px; line-height:1.45; }
+    .panel { background:linear-gradient(180deg, rgba(15,23,42,.97), rgba(17,24,39,.97)); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+    .auth-shell { min-height:calc(100vh - 44px); display:flex; align-items:center; justify-content:center; }
+    .auth-card { width:min(460px,100%); padding:24px; border-radius:24px; background:var(--panel); border:1px solid var(--border); }
+    .auth-grid { display:grid; gap:12px; margin-top:18px; }
+    input, select, textarea, button { font:inherit; }
+    input, select, textarea { width:100%; background:#020617; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:11px 12px; }
+    textarea { min-height:86px; resize:vertical; }
+    button { background:#020617; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer; font-weight:700; }
+    button.primary { background:var(--accent); color:#082f49; border:none; }
+    button.good { background:rgba(34,197,94,.14); color:#bbf7d0; border-color:rgba(34,197,94,.32); }
+    button.warn { background:rgba(245,158,11,.14); color:#fde68a; border-color:rgba(245,158,11,.32); }
+    button.bad { background:rgba(239,68,68,.14); color:#fecaca; border-color:rgba(239,68,68,.32); }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; border:1px solid var(--border); color:var(--muted); font-size:12px; background:rgba(2,6,23,.75); text-decoration:none; }
+    .top-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .controls { display:grid; grid-template-columns: minmax(210px,.7fr) minmax(210px,.7fr) minmax(260px,1fr) auto auto auto; gap:10px; margin:16px 0; align-items:center; }
+    .kpis { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+    .kpi-label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.12em; }
+    .kpi-value { font-size:28px; font-weight:800; margin-top:8px; line-height:1; }
+    .kpi-sub { color:var(--muted); font-size:12px; margin-top:7px; line-height:1.35; }
+    .tabs { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; }
+    .tab { width:auto; }
+    .tab.active { background:var(--accent); color:#082f49; border:none; }
+    .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .table-wrap { overflow:auto; max-height:650px; border-radius:14px; border:1px solid rgba(148,163,184,.12); }
+    table { width:100%; border-collapse:collapse; font-size:14px; min-width:1120px; }
+    th,td { text-align:left; padding:11px 10px; border-bottom:1px solid rgba(148,163,184,.10); vertical-align:top; }
+    th { position:sticky; top:0; z-index:1; background:#0f172a; color:var(--muted); font-weight:700; }
+    tr:hover td { background:rgba(30,41,59,.25); }
+    .note { color:var(--muted); font-size:12px; line-height:1.4; margin-top:5px; }
+    .tag { display:inline-flex; align-items:center; gap:5px; border:1px solid rgba(148,163,184,.24); background:rgba(148,163,184,.10); color:#cbd5e1; border-radius:999px; padding:4px 8px; font-size:12px; font-weight:800; white-space:nowrap; margin:2px 4px 2px 0; }
+    .tag.good { background:rgba(34,197,94,.12); color:#bbf7d0; border-color:rgba(34,197,94,.30); }
+    .tag.warn { background:rgba(245,158,11,.12); color:#fde68a; border-color:rgba(245,158,11,.30); }
+    .tag.bad { background:rgba(239,68,68,.12); color:#fecaca; border-color:rgba(239,68,68,.30); }
+    .tag.info { background:rgba(34,211,238,.12); color:#a5f3fc; border-color:rgba(34,211,238,.30); }
+    .status-line { color:var(--muted); font-size:13px; line-height:1.45; margin-top:10px; }
+    .status-line.error { color:#fda4af; }
+    .alert { border-radius:16px; padding:13px 14px; margin-bottom:14px; line-height:1.45; border:1px solid rgba(34,211,238,.26); background:rgba(34,211,238,.10); color:#bae6fd; }
+    .alert.warn { border-color:rgba(245,158,11,.32); background:rgba(245,158,11,.12); color:#fde68a; }
+    .alert.bad { border-color:rgba(239,68,68,.32); background:rgba(239,68,68,.12); color:#fecaca; }
+    .warning-list { display:grid; gap:10px; }
+    .warning-item { background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.28); color:#fde68a; border-radius:14px; padding:12px 14px; line-height:1.45; }
+    .warning-item.good { background:rgba(34,197,94,.10); border-color:rgba(34,197,94,.28); color:#bbf7d0; }
+    .warning-item.bad { background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.30); color:#fecaca; }
+    .form-modal { position:fixed; inset:0; background:rgba(2,6,23,.78); display:none; align-items:center; justify-content:center; padding:18px; z-index:10000; }
+    .form-modal.open { display:flex; }
+    .form-box { width:min(860px,100%); max-height:88vh; overflow:auto; background:#0f172a; border:1px solid var(--border); border-radius:22px; padding:20px; box-shadow:0 24px 90px rgba(0,0,0,.45); }
+    .form-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:16px; }
+    .form-title { font-size:22px; font-weight:800; }
+    .form-sub { color:var(--muted); font-size:13px; margin-top:6px; line-height:1.45; }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .form-field { display:grid; gap:6px; }
+    .form-field.full { grid-column:1 / -1; }
+    .form-field label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.10em; }
+    .form-foot { display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+    @media (max-width:1100px) { .controls, .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:700px) { body { padding:12px; } .controls, .kpis, .form-grid { grid-template-columns:1fr; } .top { align-items:flex-start; } }
+  </style>
+</head>
+<body>
+  <div id="auth-screen" class="auth-shell">
+    <div class="auth-card">
+      <div class="eyebrow">Zito FieldOS</div>
+      <h2>Offers & Pricing Login</h2>
+      <p class="sub">Sign in with your dashboard email and password.</p>
+      <div class="auth-grid">
+        <input id="login-email" type="email" placeholder="Email" autocomplete="username" />
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="login-btn" class="primary">Sign In</button>
+      </div>
+      <div id="auth-status" class="status-line">Waiting for sign in.</div>
+    </div>
+  </div>
+
+  <div id="dashboard-shell" class="hidden">
+    <div class="wrap">
+      <div class="top">
+        <div>
+          <div class="eyebrow">Zito FieldOS</div>
+          <h1>Offers & Pricing</h1>
+          <p class="sub">A faster page for managing the approved offers that appear in the rep app and sales dashboards.</p>
+        </div>
+        <div class="top-actions">
+          <span id="session-email" class="pill">Not signed in</span>
+          <span id="access-pill" class="pill">Checking access...</span>
+          <a class="pill" href="admin.html">Full Admin</a>
+          <a class="pill" href="sales-review.html">Sales Review</a>
+          <a class="pill" href="setup.html">Setup Center</a>
+          <button id="logout-btn">Log Out</button>
+        </div>
+      </div>
+
+      <div class="panel controls">
+        <select id="team-filter"><option value="all">All Teams</option></select>
+        <select id="package-filter"><option value="all">All Packages</option><option value="gig">Gig</option><option value="mega">Mega</option></select>
+        <input id="search" placeholder="Search team, territory, package, offer code, promo" />
+        <button id="refresh-btn" class="primary">Refresh</button>
+        <button id="export-current-btn">Export Current Tab</button>
+        <select id="auto-refresh"><option value="off">Auto Refresh Off</option><option value="30000">Auto Refresh 30s</option><option value="60000">Auto Refresh 60s</option></select>
+      </div>
+
+      <div id="status-line" class="status-line">Loading...</div>
+      <div class="alert">This page syncs with the rep app, company admin dashboard, Sales Review page, and management dashboard because it reads/writes <strong>fieldos_pricing_offers</strong>.</div>
+
+      <div class="kpis">
+        <div class="panel"><div class="kpi-label">Active Offers</div><div id="kpi-active" class="kpi-value">0</div><div class="kpi-sub">Currently quotable rows</div></div>
+        <div class="panel"><div class="kpi-label">All Offers</div><div id="kpi-total" class="kpi-value">0</div><div class="kpi-sub">Active and inactive</div></div>
+        <div class="panel"><div class="kpi-label">Covered Territories</div><div id="kpi-covered" class="kpi-value">0</div><div class="kpi-sub">Exact or all coverage</div></div>
+        <div class="panel"><div class="kpi-label">Coverage Gaps</div><div id="kpi-gaps" class="kpi-value">0</div><div class="kpi-sub">Territory/package gaps</div></div>
+        <div class="panel"><div class="kpi-label">Duplicate Active</div><div id="kpi-duplicates" class="kpi-value">0</div><div class="kpi-sub">Same team/territory/package</div></div>
+        <div class="panel"><div class="kpi-label">Modem Fee Flags</div><div id="kpi-modem" class="kpi-value">0</div><div class="kpi-sub">Active offers not $0</div></div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="offers">Offers</button>
+        <button class="tab" data-tab="coverage">Coverage</button>
+        <button class="tab" data-tab="warnings">Warnings</button>
+      </div>
+
+      <section id="tab-offers" class="tab-panel active">
+        <div class="panel">
+          <div class="panel-head">
+            <div><h2>Pricing Offers</h2><p class="sub">Create, duplicate, edit, deactivate, or reactivate approved FieldOS offers.</p></div>
+            <div class="actions"><button id="add-offer-btn" class="primary">+ Add Offer</button><button id="export-offers-btn">Export Offers</button></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Status</th><th>Team</th><th>Territory</th><th>Package</th><th>Offer</th><th>Promo</th><th>Phases</th><th>Required Charges</th><th>After Promo</th><th>Dates</th><th>Priority</th><th>Actions</th></tr></thead><tbody id="offers-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-coverage" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <div><h2>Offer Coverage</h2><p class="sub">Checks active address territories against Mega and Gig offer coverage.</p></div>
+            <div class="actions"><button id="export-coverage-btn">Export Coverage</button></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Team</th><th>Territory</th><th>Addresses</th><th>Mega Coverage</th><th>Gig Coverage</th><th>Recommended Action</th></tr></thead><tbody id="coverage-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-warnings" class="tab-panel">
+        <div class="panel">
+          <div class="panel-head"><div><h2>Pricing Warnings</h2><p class="sub">Highlights offer setup issues that could impact the rep app or order review.</p></div></div>
+          <div id="warning-list" class="warning-list"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="form-modal" class="form-modal">
+    <div class="form-box">
+      <div class="form-head">
+        <div><div id="form-title" class="form-title">Edit</div><div id="form-sub" class="form-sub"></div></div>
+        <button id="form-close" type="button">Close</button>
+      </div>
+      <form id="dynamic-form"><div id="form-fields" class="form-grid"></div><div id="form-note" class="status-line"></div><div class="form-foot"><button type="button" id="form-cancel">Cancel</button><button type="submit" class="primary">Save</button></div></form>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://zyioicczczmlsksxysqw.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5aW9pY2N6Y3ptbHNrc3h5c3F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzYyODMsImV4cCI6MjA5ODMxMjI4M30.Wfcn5_JA73k-Dq6YX0KpHZ3HLNsWa87v7TE3owDpOyM';
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const TEAM_LABELS = { all:'All Teams', fiber:'Fiber Sales Team', sfi:'Sales Focus Inc.', lynxx:'Lynxx' };
+    const VALID_TEAMS = ['fiber','sfi','lynxx'];
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedTeam = normalizeTeamSlug(urlParams.get('team') || 'all') || 'all';
+
+    const els = {
+      authScreen: document.getElementById('auth-screen'), dashboardShell: document.getElementById('dashboard-shell'),
+      loginEmail: document.getElementById('login-email'), loginPassword: document.getElementById('login-password'), loginBtn: document.getElementById('login-btn'), authStatus: document.getElementById('auth-status'),
+      sessionEmail: document.getElementById('session-email'), accessPill: document.getElementById('access-pill'), logoutBtn: document.getElementById('logout-btn'), status: document.getElementById('status-line'),
+      teamFilter: document.getElementById('team-filter'), packageFilter: document.getElementById('package-filter'), search: document.getElementById('search'), refreshBtn: document.getElementById('refresh-btn'), autoRefresh: document.getElementById('auto-refresh'), exportCurrentBtn: document.getElementById('export-current-btn'),
+      offersBody: document.getElementById('offers-body'), coverageBody: document.getElementById('coverage-body'), warningList: document.getElementById('warning-list'),
+      addOfferBtn: document.getElementById('add-offer-btn'), exportOffersBtn: document.getElementById('export-offers-btn'), exportCoverageBtn: document.getElementById('export-coverage-btn'),
+      formModal: document.getElementById('form-modal'), formTitle: document.getElementById('form-title'), formSub: document.getElementById('form-sub'), form: document.getElementById('dynamic-form'), formFields: document.getElementById('form-fields'), formNote: document.getElementById('form-note'), formClose: document.getElementById('form-close'), formCancel: document.getElementById('form-cancel')
+    };
+
+    let state = { fieldos_pricing_offers:[], addresses:[], sales_orders:[] };
+    let access = { resolved:false, isCompanyAdmin:false, allowedTeams:[] };
+    let activeTab = 'offers';
+    let refreshTimer = null;
+    let currentSubmitHandler = null;
+    let currentOffers = [];
+    let currentCoverage = [];
+    let currentWarnings = [];
+
+    function normalizeTeamSlug(value) { const raw = String(value || '').toLowerCase().trim(); if (!raw || raw === 'all') return 'all'; if (raw.includes('fiber')) return 'fiber'; if (raw.includes('sfi') || raw.includes('sales focus')) return 'sfi'; if (raw.includes('lynxx')) return 'lynxx'; return raw.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); }
+    function normalizeTerritory(value) { return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); }
+    function idKey(value) { return String(value || '').trim(); }
+    function labelTeam(team) { const slug = normalizeTeamSlug(team); return TEAM_LABELS[slug] || team || 'Unknown'; }
+    function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    function setText(id, value) { const el = document.getElementById(id); if (el) el.textContent = value; }
+    function formatNumber(n) { return Number(n || 0).toLocaleString(); }
+    function formatMoney(value) { const n = Number(value); if (!Number.isFinite(n)) return ''; return '$' + n.toFixed(2); }
+    function formValueOrNull(v) { const s = String(v ?? '').trim(); return s === '' ? null : s; }
+    function parseMoneyValue(value, fallback = null) { if (value === null || value === undefined || value === '') return fallback; const n = Number(String(value).replace(/[^0-9.-]+/g, '')); return Number.isFinite(n) ? n : fallback; }
+    function getTeam(row) { return normalizeTeamSlug(row?.team_slug || row?.team || row?.team_name || ''); }
+    function currentTeam() { return els.teamFilter.value || 'all'; }
+    function currentSearch() { return String(els.search.value || '').toLowerCase().trim(); }
+    function selectedPackage() { return String(els.packageFilter.value || 'all').toLowerCase(); }
+    function rowMatchesSearch(row) { const q = currentSearch(); if (!q) return true; return JSON.stringify(row || {}).toLowerCase().includes(q); }
+    function teamAllowedForSlug(team) { const slug = normalizeTeamSlug(team); const selected = currentTeam(); if (selected === 'all') return access.isCompanyAdmin || slug === 'all' || access.allowedTeams.includes(slug); return slug === selected || slug === 'all' || !slug; }
+    function teamAllowedForRow(row) { return teamAllowedForSlug(getTeam(row) || row?.team_slug || row?.team || 'all'); }
+    function packageAllowed(row) { const pkg = selectedPackage(); if (pkg === 'all') return true; return String(row?.package_key || row?.package_name || '').toLowerCase().includes(pkg); }
+
+    function arrayFromJson(value) { if (!value) return []; if (Array.isArray(value)) return value; if (typeof value === 'string') { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } } return []; }
+    function phaseSummary(phases) { return arrayFromJson(phases).map(p => { const label = p.label || (p.month_start ? `Month ${p.month_start}${p.month_end ? '–' + p.month_end : '+'}` : 'Phase'); const price = p.internet_price === 0 ? '$0 internet' : (p.internet_price ? formatMoney(p.internet_price) + ' internet' : ''); return [label, price].filter(Boolean).join(': '); }).join(' | '); }
+    function chargeSummary(charges) { return arrayFromJson(charges).map(c => `${c.label || c.key || 'Charge'}: ${formatMoney(c.amount || 0)}`).join(' | '); }
+    function modemFeeAmount(charges) { const modem = arrayFromJson(charges).find(c => String(c.key || c.label || '').toLowerCase().includes('modem')); return modem ? Number(modem.amount || 0) : 0; }
+    function activeDateStatus(row) { if (row.is_active === false) return 'Inactive'; const today = new Date(); today.setHours(0,0,0,0); if (row.active_start) { const s = new Date(row.active_start + 'T00:00:00'); if (s > today) return 'Scheduled'; } if (row.active_end) { const e = new Date(row.active_end + 'T23:59:59'); if (e < today) return 'Expired'; } return 'Active'; }
+
+    async function signIn() { const email = els.loginEmail.value.trim(); const password = els.loginPassword.value; if (!email || !password) { els.authStatus.textContent = 'Enter email and password.'; return; } els.authStatus.textContent = 'Signing in...'; const { error } = await supabaseClient.auth.signInWithPassword({ email, password }); if (error) els.authStatus.textContent = error.message || 'Could not sign in.'; else els.loginPassword.value = ''; }
+    async function signOut() { await supabaseClient.auth.signOut(); }
+    function showAuth(message) { els.authScreen.classList.remove('hidden'); els.dashboardShell.classList.add('hidden'); els.authStatus.textContent = message || 'Please sign in.'; }
+    function showDashboard(session) { els.authScreen.classList.add('hidden'); els.dashboardShell.classList.remove('hidden'); els.sessionEmail.textContent = session?.user?.email || 'Signed in'; }
+
+    function normalizeAllowedTeams(value) { if (Array.isArray(value)) return value.map(normalizeTeamSlug).filter(t => VALID_TEAMS.includes(t)); const raw = String(value || '').toLowerCase().trim(); if (!raw) return []; if (raw === 'all') return [...VALID_TEAMS]; return raw.split(/[;,\s]+/).map(normalizeTeamSlug).filter(t => VALID_TEAMS.includes(t)); }
+    async function resolveAccess(force=false) {
+      if (access.resolved && !force) return access;
+      const { data: sessionData } = await supabaseClient.auth.getSession(); const user = sessionData?.session?.user || null; const email = String(user?.email || '').trim().toLowerCase(); const userId = user?.id || '';
+      let isCompanyAdmin = false; let allowedTeams = [];
+      try { const { data, error } = await supabaseClient.rpc('fieldos_dashboard_access'); const row = Array.isArray(data) ? data[0] : data; if (!error && row) { isCompanyAdmin = row.is_company_admin === true; allowedTeams = allowedTeams.concat(normalizeAllowedTeams(row.allowed_teams || row.allowed_team || row.team_slug || row.team)); } } catch (err) { console.warn('fieldos_dashboard_access RPC unavailable.', err); }
+      if (!isCompanyAdmin && allowedTeams.length === 0) {
+        try { let rows = []; if (userId) { const byUser = await supabaseClient.from('dashboard_users').select('user_id,email,team,is_company_admin').eq('user_id', userId).limit(10); if (!byUser.error && Array.isArray(byUser.data)) rows = byUser.data; }
+          if ((!rows || rows.length === 0) && email) { const byEmail = await supabaseClient.from('dashboard_users').select('user_id,email,team,is_company_admin').ilike('email', email).limit(10); if (!byEmail.error && Array.isArray(byEmail.data)) rows = byEmail.data; }
+          rows.forEach(row => { if (row.is_company_admin) isCompanyAdmin = true; allowedTeams = allowedTeams.concat(normalizeAllowedTeams(row.team)); });
+        } catch (err) { console.warn('dashboard_users fallback unavailable.', err); }
+      }
+      allowedTeams = [...new Set(allowedTeams.filter(t => VALID_TEAMS.includes(t)))];
+      if (isCompanyAdmin) allowedTeams = [...VALID_TEAMS];
+      access = { resolved:true, isCompanyAdmin, allowedTeams };
+      if (!isCompanyAdmin && !allowedTeams.length) throw new Error('Dashboard access denied. Add this user to dashboard_users.');
+      return access;
+    }
+    function updateTeamFilter() { const options = access.isCompanyAdmin ? ['all', ...VALID_TEAMS] : access.allowedTeams; els.teamFilter.innerHTML = options.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(labelTeam(t))}</option>`).join(''); const desired = requestedTeam !== 'all' ? requestedTeam : (access.isCompanyAdmin ? 'all' : access.allowedTeams[0]); els.teamFilter.value = options.includes(desired) ? desired : options[0]; els.accessPill.textContent = access.isCompanyAdmin ? 'Company Admin' : 'Team Access: ' + access.allowedTeams.map(labelTeam).join(', '); }
+
+    async function fetchAllPages(table, opts={}) { let rows = []; let from = 0; const pageSize = opts.pageSize || 1000; while (true) { let q = supabaseClient.from(table).select(opts.select || '*').range(from, from + pageSize - 1); if (opts.order) q = q.order(opts.order.column, { ascending: opts.order.ascending !== false }); const { data, error } = await q; if (error) throw error; rows = rows.concat(data || []); if (!data || data.length < pageSize) break; from += pageSize; } return rows; }
+    async function loadData() {
+      els.status.classList.remove('error'); els.status.textContent = 'Loading offers and pricing data...'; await resolveAccess(); updateTeamFilter();
+      const [offers, addresses, sales] = await Promise.all([
+        fetchAllPages('fieldos_pricing_offers', { order:{ column:'priority', ascending:true } }),
+        fetchAllPages('addresses', { select:'id,team_slug,territory', order:{ column:'territory', ascending:true }, pageSize:1000 }),
+        fetchAllPages('sales_orders', { select:'id,team_slug,territory,offer_snapshot,created_at', order:{ column:'created_at', ascending:false }, pageSize:1000 })
+      ]);
+      state = { fieldos_pricing_offers:offers || [], addresses:addresses || [], sales_orders:sales || [] };
+      render();
+      els.status.textContent = `Loaded ${formatNumber(state.fieldos_pricing_offers.length)} offer rows, ${formatNumber(state.addresses.length)} address rows, and ${formatNumber(state.sales_orders.length)} sales rows.`;
+    }
+
+    function filteredOffers(includeInactive=true) { return (state.fieldos_pricing_offers || []).filter(teamAllowedForRow).filter(packageAllowed).filter(rowMatchesSearch).filter(o => includeInactive || activeDateStatus(o) === 'Active'); }
+    function activeOffersForCoverage() { return (state.fieldos_pricing_offers || []).filter(o => o && activeDateStatus(o) === 'Active').filter(teamAllowedForRow); }
+    function territoriesInScope() {
+      const map = new Map();
+      (state.addresses || []).forEach(a => { const team = getTeam(a); const terr = a.territory || ''; if (!terr || !teamAllowedForSlug(team)) return; const selected = currentTeam(); if (selected !== 'all' && team !== selected) return; const key = `${team}|${normalizeTerritory(terr)}`; if (!map.has(key)) map.set(key, { team_slug:team || 'all', territory:terr, addresses:0 }); map.get(key).addresses += 1; });
+      return [...map.values()].sort((a,b) => (a.team_slug+a.territory).localeCompare(b.team_slug+b.territory));
+    }
+    function findOfferForTerritoryPackage(offers, team, territory, packageKey) { const terr = normalizeTerritory(territory); const teamSlug = normalizeTeamSlug(team); const pkg = String(packageKey || '').toLowerCase(); const candidates = offers.filter(o => String(o.package_key || '').toLowerCase() === pkg); const exactTeamExactTerr = candidates.find(o => normalizeTeamSlug(o.team_slug || 'all') === teamSlug && normalizeTerritory(o.territory || 'all') === terr); if (exactTeamExactTerr) return exactTeamExactTerr; const exactTeamAllTerr = candidates.find(o => normalizeTeamSlug(o.team_slug || 'all') === teamSlug && normalizeTerritory(o.territory || 'all') === 'all'); if (exactTeamAllTerr) return exactTeamAllTerr; const allTeamExactTerr = candidates.find(o => normalizeTeamSlug(o.team_slug || 'all') === 'all' && normalizeTerritory(o.territory || 'all') === terr); if (allTeamExactTerr) return allTeamExactTerr; return candidates.find(o => normalizeTeamSlug(o.team_slug || 'all') === 'all' && normalizeTerritory(o.territory || 'all') === 'all') || null; }
+    function buildCoverageRows() { const offers = activeOffersForCoverage(); return territoriesInScope().map(t => { const mega = findOfferForTerritoryPackage(offers, t.team_slug, t.territory, 'mega'); const gig = findOfferForTerritoryPackage(offers, t.team_slug, t.territory, 'gig'); return { ...t, mega_offer:mega, gig_offer:gig, mega_status:mega ? 'Covered' : 'Missing', gig_status:gig ? 'Covered' : 'Missing', recommendation: mega && gig ? 'Covered' : 'Add active offer coverage for ' + [mega ? '' : 'Mega', gig ? '' : 'Gig'].filter(Boolean).join(' and ') }; }); }
+    function buildWarnings(offers, coverageRows) { const warnings = []; const active = offers.filter(o => activeDateStatus(o) === 'Active'); if (!active.length) warnings.push({ type:'bad', text:'No active offers are available for the selected view. Reps may see fallback pricing or no approved offer.' }); const modemFlags = active.filter(o => modemFeeAmount(o.charges) !== 0); if (modemFlags.length) warnings.push({ type:'bad', text:`${formatNumber(modemFlags.length)} active offer(s) have a modem fee other than $0.` }); const salesMissingSnapshots = (state.sales_orders || []).filter(s => teamAllowedForRow(s)).filter(s => !s.offer_snapshot).length; if (salesMissingSnapshots) warnings.push({ type:'warn', text:`${formatNumber(salesMissingSnapshots)} sales order(s) are missing offer_snapshot. Review before entering the order.` }); const dup = new Map(); active.forEach(o => { const key = [normalizeTeamSlug(o.team_slug || 'all'), normalizeTerritory(o.territory || 'all'), String(o.package_key || '').toLowerCase()].join('|'); dup.set(key, (dup.get(key) || 0) + 1); }); const duplicateCount = [...dup.values()].filter(v => v > 1).length; if (duplicateCount) warnings.push({ type:'warn', text:`${formatNumber(duplicateCount)} active team/territory/package combination(s) have duplicate offers.` }); const gaps = coverageRows.filter(r => r.mega_status === 'Missing' || r.gig_status === 'Missing'); if (gaps.length) warnings.push({ type:'warn', text:`${formatNumber(gaps.length)} territory row(s) are missing Mega or Gig coverage.` }); const expired = offers.filter(o => activeDateStatus(o) === 'Expired').length; if (expired) warnings.push({ type:'warn', text:`${formatNumber(expired)} inactive/expired offer row(s) remain in the table. This is okay, but keep active rows clean.` }); if (!warnings.length) warnings.push({ type:'good', text:'Pricing setup looks good for the current filters. Active offers exist, coverage is complete, duplicate conflicts are clear, and modem-fee flags are clear.' }); return warnings; }
+
+    function render() {
+      const offers = filteredOffers(true); const active = offers.filter(o => activeDateStatus(o) === 'Active'); const coverageRows = buildCoverageRows(); const warnings = buildWarnings(offers, coverageRows); currentOffers = offers; currentCoverage = coverageRows; currentWarnings = warnings;
+      const activeAll = activeOffersForCoverage(); const coveredTerritories = new Set(coverageRows.filter(r => r.mega_offer || r.gig_offer).map(r => `${r.team_slug}|${normalizeTerritory(r.territory)}`)); const gaps = coverageRows.filter(r => r.mega_status === 'Missing' || r.gig_status === 'Missing').length; const modem = active.filter(o => modemFeeAmount(o.charges) !== 0).length; const dup = new Map(); active.forEach(o => { const key = [normalizeTeamSlug(o.team_slug || 'all'), normalizeTerritory(o.territory || 'all'), String(o.package_key || '').toLowerCase()].join('|'); dup.set(key, (dup.get(key)||0)+1); });
+      setText('kpi-active', formatNumber(active.length)); setText('kpi-total', formatNumber(offers.length)); setText('kpi-covered', formatNumber(coveredTerritories.size)); setText('kpi-gaps', formatNumber(gaps)); setText('kpi-duplicates', formatNumber([...dup.values()].filter(v => v > 1).length)); setText('kpi-modem', formatNumber(modem));
+      renderOffers(offers); renderCoverage(coverageRows); renderWarnings(warnings);
+    }
+    function offerStatusTag(row) { const st = activeDateStatus(row); if (st === 'Active') return '<span class="tag good">Active</span>'; if (st === 'Scheduled') return '<span class="tag info">Scheduled</span>'; if (st === 'Expired') return '<span class="tag warn">Expired</span>'; return '<span class="tag bad">Inactive</span>'; }
+    function renderOffers(rows) { els.offersBody.innerHTML = rows.length ? rows.map(o => `<tr><td>${offerStatusTag(o)}</td><td>${escapeHtml(o.team_slug || 'all')}</td><td>${escapeHtml(o.territory || 'all')}</td><td>${escapeHtml(o.package_name || o.package_key || '—')}<div class="note">${escapeHtml(o.speed_label || '')}</div></td><td><strong>${escapeHtml(o.offer_title || o.offer_code || '—')}</strong><div class="note">${escapeHtml(o.offer_code || '')}</div></td><td>${escapeHtml(o.promo_display || '')}<div class="note">${escapeHtml(o.promo_term_label || '')}</div></td><td>${escapeHtml(phaseSummary(o.phases) || '—')}</td><td>${escapeHtml(chargeSummary(o.charges) || '—')}${modemFeeAmount(o.charges) !== 0 ? '<div><span class="tag warn">Modem fee flag</span></div>' : ''}</td><td>${escapeHtml(o.standard_rate_label || (o.standard_rate ? formatMoney(o.standard_rate) : ''))}</td><td>${escapeHtml((o.active_start || 'Start now') + ' → ' + (o.active_end || 'No end'))}</td><td>${escapeHtml(o.priority ?? o.sort_order ?? '—')}</td><td><div class="actions"><button data-edit-offer="${escapeHtml(idKey(o.id))}">Edit</button><button data-duplicate-offer="${escapeHtml(idKey(o.id))}">Duplicate</button>${o.is_active === false ? `<button class="good" data-active-offer="${escapeHtml(idKey(o.id))}" data-active="true">Reactivate</button>` : `<button class="warn" data-active-offer="${escapeHtml(idKey(o.id))}" data-active="false">Deactivate</button>`}</div></td></tr>`).join('') : '<tr><td colspan="12" class="note">No offers found for the current filters.</td></tr>'; }
+    function coverageBadge(row, type) { const offer = type === 'mega' ? row.mega_offer : row.gig_offer; return offer ? `<span class="tag good">${escapeHtml(offer.offer_title || offer.offer_code || 'Covered')}</span><div class="note">${escapeHtml((offer.team_slug || 'all') + ' / ' + (offer.territory || 'all'))}</div>` : '<span class="tag warn">Missing</span>'; }
+    function renderCoverage(rows) { els.coverageBody.innerHTML = rows.length ? rows.map(r => `<tr><td>${escapeHtml(labelTeam(r.team_slug))}</td><td>${escapeHtml(r.territory)}</td><td>${formatNumber(r.addresses)}</td><td>${coverageBadge(r, 'mega')}</td><td>${coverageBadge(r, 'gig')}</td><td>${escapeHtml(r.recommendation)}</td></tr>`).join('') : '<tr><td colspan="6" class="note">No address territories found for the current team filter.</td></tr>'; }
+    function renderWarnings(rows) { els.warningList.innerHTML = rows.map(w => `<div class="warning-item ${w.type === 'bad' ? 'bad' : w.type === 'good' ? 'good' : ''}">${escapeHtml(w.text)}</div>`).join(''); }
+
+    function formFieldsHtml(fields) { return fields.map(f => { const value = f.value ?? ''; let input = ''; if (f.type === 'select') input = `<select name="${escapeHtml(f.name)}">${(f.options || []).map(opt => typeof opt === 'object' ? `<option value="${escapeHtml(opt.value)}" ${String(opt.value)===String(value)?'selected':''}>${escapeHtml(opt.label)}</option>` : `<option value="${escapeHtml(opt)}" ${String(opt)===String(value)?'selected':''}>${escapeHtml(opt)}</option>`).join('')}</select>`; else if (f.type === 'textarea') input = `<textarea name="${escapeHtml(f.name)}">${escapeHtml(value)}</textarea>`; else input = `<input name="${escapeHtml(f.name)}" type="${escapeHtml(f.type || 'text')}" value="${escapeHtml(value)}" />`; return `<div class="form-field ${f.full ? 'full' : ''}"><label>${escapeHtml(f.label)}</label>${input}</div>`; }).join(''); }
+    function openForm({ title, subtitle, fields, note, onSubmit }) { els.formTitle.textContent = title; els.formSub.textContent = subtitle || ''; els.formFields.innerHTML = formFieldsHtml(fields); els.formNote.textContent = note || ''; els.formNote.classList.remove('error'); currentSubmitHandler = async function(form) { const payload = Object.fromEntries(new FormData(form).entries()); await onSubmit(payload); }; els.formModal.classList.add('open'); }
+    function closeForm() { els.formModal.classList.remove('open'); currentSubmitHandler = null; els.formFields.innerHTML = ''; els.formNote.classList.remove('error'); }
+    function teamOptions() { const teams = access.isCompanyAdmin ? ['all', ...VALID_TEAMS] : ['all', ...access.allowedTeams]; return [...new Set(teams)].map(t => ({ value:t, label:labelTeam(t) })); }
+    function territoryOptions() { const vals = new Set(['all']); (state.addresses || []).forEach(a => { if (teamAllowedForSlug(getTeam(a)) && a.territory) vals.add(a.territory); }); (state.fieldos_pricing_offers || []).forEach(o => { if (teamAllowedForRow(o) && o.territory) vals.add(o.territory); }); return [...vals].sort((a,b) => normalizeTerritory(a).localeCompare(normalizeTerritory(b))).map(v => ({ value:v, label:v })); }
+    function makePricingPhases(payload) { const promoMonths = Math.max(1, Number(payload.promo_months || 24)); const introMonths = Math.max(0, Number(payload.intro_free_months || 0)); const promoPrice = parseMoneyValue(payload.promo_price, 0); const regular = parseMoneyValue(payload.standard_rate, promoPrice); const phases = []; if (introMonths > 0) phases.push({ label:'Months 1–' + introMonths, month_start:1, month_end:introMonths, internet_price:0, description:'Internet free during introductory period' }); phases.push({ label:'Months ' + (introMonths + 1) + '–' + promoMonths, month_start:introMonths + 1, month_end:promoMonths, internet_price:promoPrice }); phases.push({ label:'Month ' + (promoMonths + 1) + '+', month_start:promoMonths + 1, month_end:null, internet_price:regular }); return phases; }
+    function makePricingCharges(payload) { return [{ key:'modem', label:'Modem Rental', amount:parseMoneyValue(payload.modem_fee, 0), recurring:true, required:true, prorate:true }, { key:'eero', label:'eero WiFi Router', amount:parseMoneyValue(payload.eero_fee, 5), recurring:true, required:true, prorate:true }, { key:'processing', label:'Payment Processing Fee', amount:parseMoneyValue(payload.processing_fee, 1), recurring:true, required:true, prorate:false }]; }
+    function inferPromoPrice(row) { const phases = arrayFromJson(row?.phases); const phase = phases.find(p => Number(p.internet_price) > 0); return phase ? Number(phase.internet_price) : 49.95; }
+    function inferIntroMonths(row) { const phases = arrayFromJson(row?.phases); const free = phases.find(p => Number(p.internet_price) === 0); return free ? Number(free.month_end || free.month_start || 0) : 0; }
+    function inferFee(row, key, fallback) { const charge = arrayFromJson(row?.charges).find(c => String(c.key || c.label || '').toLowerCase().includes(key)); return charge ? Number(charge.amount || 0) : fallback; }
+    function openOfferForm(sourceOffer=null, duplicate=false) { const row = sourceOffer || {}; const pkg = String(row.package_key || 'gig').toLowerCase(); openForm({ title: sourceOffer ? (duplicate ? 'Duplicate Pricing Offer' : 'Edit Pricing Offer') : 'Add Pricing Offer', subtitle:'Create or update an active pricing/promo row used by the rep app.', note:'This page writes to fieldos_pricing_offers. Any saved change is immediately shared with the rep app and other dashboards.', fields:[ {name:'team_slug', label:'Team', type:'select', options:teamOptions(), value:row.team_slug || currentTeam() || 'all'}, {name:'territory', label:'Territory', type:'select', options:territoryOptions(), value:row.territory || 'all'}, {name:'package_key', label:'Package', type:'select', options:[{value:'gig', label:'Gig'}, {value:'mega', label:'Mega'}], value:pkg}, {name:'package_name', label:'Package Name', value:row.package_name || (pkg === 'mega' ? 'Mega Speed Internet' : 'Gig Speed Internet')}, {name:'speed_label', label:'Speed Label', value:row.speed_label || (pkg === 'mega' ? '400 Mbps' : '1,000 Mbps')}, {name:'offer_title', label:'Offer Title', value:duplicate ? ((row.offer_title || '') + ' Copy').trim() : (row.offer_title || '')}, {name:'promo_display', label:'Promo Display', value:row.promo_display || '$49.95/mo promo'}, {name:'promo_term_label', label:'Promo Term Label', value:row.promo_term_label || '24 months'}, {name:'intro_free_months', label:'Intro Free Months', type:'number', value:inferIntroMonths(row)}, {name:'promo_months', label:'Promo Months', type:'number', value:24}, {name:'promo_price', label:'Promo Internet Price', type:'number', value:inferPromoPrice(row)}, {name:'standard_rate', label:'After-Promo Internet Price', type:'number', value:row.standard_rate || 90.95}, {name:'eero_fee', label:'eero Fee', type:'number', value:inferFee(row,'eero',5)}, {name:'modem_fee', label:'Modem Fee', type:'number', value:inferFee(row,'modem',0)}, {name:'processing_fee', label:'Processing Fee', type:'number', value:inferFee(row,'processing',1)}, {name:'active_start', label:'Active Start', type:'date', value:row.active_start || new Date().toISOString().slice(0,10)}, {name:'active_end', label:'Active End', type:'date', value:row.active_end || ''}, {name:'priority', label:'Priority', type:'number', value:row.priority || row.sort_order || 100}, {name:'disclosure', label:'Disclosure', type:'textarea', full:true, value:row.disclosure || 'No modem rental fee. Customer is responsible for required eero and applicable fees. Pricing is subject to serviceability and final account setup.'} ], onSubmit: async function(payload) { const packageKey = String(payload.package_key || 'gig').toLowerCase(); const data = { team_slug: formValueOrNull(payload.team_slug) || 'all', territory: formValueOrNull(payload.territory) || 'all', package_key: packageKey, package_name: formValueOrNull(payload.package_name) || (packageKey === 'mega' ? 'Mega Speed Internet' : 'Gig Speed Internet'), speed_label: formValueOrNull(payload.speed_label), offer_title: formValueOrNull(payload.offer_title) || 'FieldOS Offer', promo_display: formValueOrNull(payload.promo_display), promo_term_label: formValueOrNull(payload.promo_term_label), standard_rate: parseMoneyValue(payload.standard_rate, null), standard_rate_label: payload.standard_rate ? ('$' + Number(payload.standard_rate).toFixed(2) + '/mo after promo') : null, phases: makePricingPhases(payload), charges: makePricingCharges(payload), active_start: formValueOrNull(payload.active_start), active_end: formValueOrNull(payload.active_end), is_active:true, priority:Number(payload.priority || 100), sort_order:Number(payload.priority || 100), disclosure: formValueOrNull(payload.disclosure), updated_at:new Date().toISOString() }; if (sourceOffer && !duplicate) { const { error } = await supabaseClient.from('fieldos_pricing_offers').update(data).eq('id', sourceOffer.id); if (error) throw error; } else { data.offer_code = 'pricing_' + packageKey + '_' + Date.now(); const { error } = await supabaseClient.from('fieldos_pricing_offers').insert(data); if (error) throw error; } } }); }
+
+    function rowsForExport(name) { if (name === 'coverage') return currentCoverage.map(r => ({ team_slug:r.team_slug, territory:r.territory, addresses:r.addresses, mega_status:r.mega_status, mega_offer:r.mega_offer?.offer_title || r.mega_offer?.offer_code || '', gig_status:r.gig_status, gig_offer:r.gig_offer?.offer_title || r.gig_offer?.offer_code || '', recommendation:r.recommendation })); if (name === 'warnings') return currentWarnings; return currentOffers.map(o => ({ status:activeDateStatus(o), team_slug:o.team_slug || 'all', territory:o.territory || 'all', package_key:o.package_key || '', package_name:o.package_name || '', offer_code:o.offer_code || '', offer_title:o.offer_title || '', promo_display:o.promo_display || '', promo_term_label:o.promo_term_label || '', phase_schedule:phaseSummary(o.phases), required_charges:chargeSummary(o.charges), standard_rate_label:o.standard_rate_label || '', active_start:o.active_start || '', active_end:o.active_end || '', priority:o.priority, sort_order:o.sort_order, disclosure:o.disclosure || '' })); }
+    function csvEscape(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+    function csvDownload(filename, rows) { const list = rows || []; const headers = [...new Set(list.flatMap(row => Object.keys(row || {})))]; const csv = [headers.join(','), ...list.map(row => headers.map(h => csvEscape(row[h])).join(','))].join('\n'); const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 500); }
+
+    function setActiveTab(tab) { activeTab = tab; document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tab') === tab)); document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === 'tab-' + tab)); }
+    function showError(err) { console.error(err); els.status.textContent = err.message || 'Something went wrong.'; els.status.classList.add('error'); }
+    document.querySelectorAll('.tab').forEach(btn => btn.onclick = () => setActiveTab(btn.getAttribute('data-tab')));
+    els.loginBtn.onclick = signIn; els.loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); }); els.logoutBtn.onclick = signOut; els.refreshBtn.onclick = () => loadData().catch(showError); els.teamFilter.onchange = render; els.packageFilter.onchange = render; els.search.oninput = render; els.addOfferBtn.onclick = () => openOfferForm(); els.exportOffersBtn.onclick = () => csvDownload('fieldos_pricing_offers.csv', rowsForExport('offers')); els.exportCoverageBtn.onclick = () => csvDownload('fieldos_pricing_coverage.csv', rowsForExport('coverage')); els.exportCurrentBtn.onclick = () => csvDownload('fieldos_pricing_' + activeTab + '.csv', rowsForExport(activeTab)); els.autoRefresh.onchange = () => { if (refreshTimer) clearInterval(refreshTimer); const v = els.autoRefresh.value; if (v !== 'off') refreshTimer = setInterval(() => loadData().catch(showError), Number(v)); };
+    els.formClose.onclick = closeForm; els.formCancel.onclick = closeForm; els.form.onsubmit = async e => { e.preventDefault(); if (!currentSubmitHandler) return; try { els.formNote.classList.remove('error'); els.formNote.textContent = 'Saving...'; await currentSubmitHandler(els.form); closeForm(); await loadData(); } catch (err) { els.formNote.textContent = err.message || 'Save failed.'; els.formNote.classList.add('error'); } };
+    document.addEventListener('click', async e => { const edit = e.target.closest('[data-edit-offer]'); if (edit) { const row = state.fieldos_pricing_offers.find(o => idKey(o.id) === edit.getAttribute('data-edit-offer')); if (row) openOfferForm(row, false); return; } const dup = e.target.closest('[data-duplicate-offer]'); if (dup) { const row = state.fieldos_pricing_offers.find(o => idKey(o.id) === dup.getAttribute('data-duplicate-offer')); if (row) openOfferForm(row, true); return; } const active = e.target.closest('[data-active-offer]'); if (active) { try { const id = active.getAttribute('data-active-offer'); const isActive = active.getAttribute('data-active') === 'true'; if (!confirm((isActive ? 'Reactivate' : 'Deactivate') + ' this offer?')) return; const { error } = await supabaseClient.from('fieldos_pricing_offers').update({ is_active:isActive, updated_at:new Date().toISOString() }).eq('id', id); if (error) throw error; await loadData(); } catch (err) { showError(err); } } });
+
+    supabaseClient.auth.onAuthStateChange((_event, session) => { if (session) { showDashboard(session); resolveAccess(true).then(() => { updateTeamFilter(); return loadData(); }).catch(showError); } else showAuth('Please sign in to continue.'); });
+    (async function init(){ const { data } = await supabaseClient.auth.getSession(); if (data.session) { showDashboard(data.session); try { await resolveAccess(true); updateTeamFilter(); await loadData(); } catch (err) { showError(err); } } else showAuth('Please sign in to continue.'); })();
+  </script>
+</body>
+</html>
