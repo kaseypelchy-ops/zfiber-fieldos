@@ -3172,9 +3172,11 @@
     };
     els.loginBtn.onclick = signIn;
     els.logoutBtn.onclick = signOut;
-    els.tabOverview.onclick = () => setActiveTab('overview');
-    els.tabSales.onclick = () => setActiveTab('sales');
-    els.tabPricing.onclick = () => setActiveTab('pricing');
+    // Null-safe tab binding hotfix: some heavy workflow tabs were moved to separate pages.
+    // Removed tab buttons will be null, so guard before assigning handlers.
+    if (els.tabOverview) els.tabOverview.onclick = () => setActiveTab('overview');
+    if (els.tabSales) els.tabSales.onclick = () => setActiveTab('sales');
+    if (els.tabPricing) els.tabPricing.onclick = () => setActiveTab('pricing');
     if (els.tabInstallCapacity) els.tabInstallCapacity.onclick = () => setActiveTab('install-capacity');
     if (els.tabHistoricalReporting) {
       els.tabHistoricalReporting.onclick = () => setActiveTab('historical-reporting');
@@ -3182,11 +3184,11 @@
     if (els.tabDatabaseHealth) {
       els.tabDatabaseHealth.onclick = () => setActiveTab('database-health');
     }
-    els.tabRoute.onclick = () => setActiveTab('route');
-    els.routeRender.onclick = renderRouteReplay;
-    els.routePlay.onclick = playRouteReplay;
-    els.routePause.onclick = pauseRouteReplay;
-    els.routeReset.onclick = resetRouteReplay;
+    if (els.tabRoute) els.tabRoute.onclick = () => setActiveTab('route');
+    if (els.routeRender) els.routeRender.onclick = renderRouteReplay;
+    if (els.routePlay) els.routePlay.onclick = playRouteReplay;
+    if (els.routePause) els.routePause.onclick = pauseRouteReplay;
+    if (els.routeReset) els.routeReset.onclick = resetRouteReplay;
     els.loginPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); });
 
     supabaseClient.auth.onAuthStateChange(async (_event, session) => {
