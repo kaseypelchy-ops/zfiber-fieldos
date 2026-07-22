@@ -249,16 +249,59 @@
     .mini-badge.credit { background: rgba(14,165,233,.14); color: #bae6fd; border-color: rgba(14,165,233,.32); }
     .sales-status-control { min-width: 210px; }
 
-    .company-admin-only { display: block; }
-    .team-only { display: none !important; }
-    body.team-admin-locked .company-admin-only { display: none !important; }
-    body.team-admin-locked .team-only { display: block !important; }
-    body.team-admin-locked #tab-pricing,
-    body.team-admin-locked #tab-sales-review,
-    body.team-admin-locked #tab-install-capacity,
-    body.team-admin-locked #tab-panel-pricing,
-    body.team-admin-locked #tab-panel-sales-review,
-    body.team-admin-locked #tab-panel-install-capacity { display: none !important; }
+
+    /* Company Admin Command Center quick links */
+    .workflow-links { margin-bottom: 20px; }
+    .workflow-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .workflow-card {
+      display: block;
+      min-height: 118px;
+      text-decoration: none;
+      color: var(--text);
+      background: rgba(30,41,59,.55);
+      border: 1px solid rgba(148,163,184,.18);
+      border-radius: 16px;
+      padding: 16px;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    }
+    .workflow-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(34,211,238,.45);
+      background: rgba(30,41,59,.76);
+    }
+    .workflow-card-label {
+      color: var(--accent);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      font-weight: 800;
+    }
+    .workflow-card-title {
+      margin-top: 8px;
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+    .workflow-card-sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .workflow-card-pill {
+      display: inline-flex;
+      margin-top: 12px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      color: #a5f3fc;
+      background: rgba(34,211,238,.12);
+      border: 1px solid rgba(34,211,238,.25);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    body.team-admin-locked #company-workflow-links { display: none !important; }
+    @media (max-width: 1200px) { .workflow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 700px) { .workflow-grid { grid-template-columns: 1fr; } }
 
   </style>
 </head>
@@ -266,8 +309,8 @@
   <div id="auth-screen" class="auth-shell">
     <div class="auth-card">
       <div class="eyebrow">Zito FieldOS</div>
-      <h2 id="auth-title">FieldOS Dashboard Login</h2>
-      <p id="auth-subtitle">Sign in with your approved FieldOS dashboard email and password.</p>
+      <h2 id="auth-title">Dashboard Login</h2>
+      <p id="auth-subtitle">Sign in with your dashboard email and password.</p>
       <div class="auth-grid">
         <input id="login-email" type="email" placeholder="Email" autocomplete="username" />
         <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
@@ -282,7 +325,7 @@
       <div class="top">
         <div>
           <div class="eyebrow">Zito FieldOS</div>
-          <h1 id="dashboard-title">FieldOS Dashboard</h1>
+          <h1 id="dashboard-title">Admin Dashboard</h1>
           <p id="dashboard-subtitle" class="sub">Team performance and sales activity dashboard.</p>
         </div>
         <div class="auth-top-right">
@@ -312,26 +355,53 @@
       </div>
 
       <div id="status-line" class="status-line">Signed in. Loading data...</div>
-      <div class="status-line company-admin-only">Use the filters above to review company/team performance, install capacity, data quality, and operations follow-up.</div>
-      <div id="team-scope-line" class="status-line team-only">This team dashboard is locked to your assigned company/team. Company admin tools, management links, and other vendor data are hidden.</div>
+      <div class="status-line">Use the filters above to review team performance, territory activity, sales, install capacity, and rep follow-up.</div>
+
+            <div id="company-workflow-links" class="panel workflow-links company-admin-only">
+        <div class="panel-head">
+          <div>
+            <h2>Focused Workflow Pages</h2>
+            <div class="panel-sub">Use these dedicated pages for heavier admin workflows. They all sync with this dashboard because they use the same FieldOS data.</div>
+          </div>
+        </div>
+        <div class="workflow-grid">
+          <a class="workflow-card" href="sales-review.html">
+            <div class="workflow-card-label">Invoicing</div>
+            <div class="workflow-card-title">Sales Review &amp; Invoicing</div>
+            <div class="workflow-card-sub">Process ZIP entry, install outcomes, invoice exports, and clawback credits.</div>
+            <span class="workflow-card-pill">Open sales-review.html</span>
+          </a>
+          <a class="workflow-card" href="pricing.html">
+            <div class="workflow-card-label">Pricing</div>
+            <div class="workflow-card-title">Offers &amp; Pricing</div>
+            <div class="workflow-card-sub">Manage field offers, promo terms, package coverage, and pricing warnings.</div>
+            <span class="workflow-card-pill">Open pricing.html</span>
+          </a>
+          <a class="workflow-card" href="setup.html">
+            <div class="workflow-card-label">Setup</div>
+            <div class="workflow-card-title">Setup Center</div>
+            <div class="workflow-card-sub">Manage reps, territories, assignments, and KMZ/KML boundary files.</div>
+            <span class="workflow-card-pill">Open setup.html</span>
+          </a>
+          <a class="workflow-card" href="management.html">
+            <div class="workflow-card-label">Executive View</div>
+            <div class="workflow-card-title">Management Overview</div>
+            <div class="workflow-card-sub">Open the high-level management page for big-picture performance and historical summaries.</div>
+            <span class="workflow-card-pill">Open management.html</span>
+          </a>
+        </div>
+      </div>
 
       <div class="tab-bar">
         <button id="tab-overview" class="tab-btn active">Overview</button>
-        <button id="tab-sales" class="tab-btn">Sales Queue</button>
-        <button id="tab-pricing" class="tab-btn">Offers & Pricing</button>
-        <button id="tab-sales-review" class="tab-btn">Sales Review</button>
+        <button id="tab-sales" class="tab-btn">Sales Status</button>
         <button id="tab-install-capacity" class="tab-btn">Install Capacity</button>
-        <button id="tab-reps-admin" class="tab-btn admin-only">Reps</button>
-        <button id="tab-territories-admin" class="tab-btn admin-only">Territories</button>
-        <button id="tab-boundaries-admin" class="tab-btn admin-only">Boundary Files</button>
         <button id="tab-data-quality" class="tab-btn admin-only">Data Quality</button>
         <button id="tab-address-timeline" class="tab-btn admin-only">Address Timeline</button>
         <button id="tab-address-import" class="tab-btn admin-only">Address Import</button>
         <button id="tab-rep-qa" class="tab-btn admin-only">Rep QA</button>
-        <button id="tab-vendor-scorecard" class="tab-btn admin-only">Vendor Scorecard</button>
         <button id="tab-admin-audit" class="tab-btn admin-only">Admin Audit</button>
         <button id="tab-daily-reports" class="tab-btn admin-only">Daily Reports</button>
-        <button id="tab-historical-reporting" class="tab-btn admin-only">Historical Reporting</button>
         <button id="tab-database-health" class="tab-btn admin-only">System Status</button>
         <button id="tab-route" class="tab-btn">Route Replay + AI Analysis</button>
       </div>
@@ -440,6 +510,7 @@
       </div>
 
 
+      <!-- Moved workflow panels are retained for backwards compatibility but are no longer linked from the Company Admin Command Center. Use pricing.html, sales-review.html, and setup.html instead. -->
       <div id="tab-panel-pricing" class="tab-panel">
         <div class="pricing-summary">
           <div class="pricing-card"><div class="pricing-card-label">Active Offers</div><div id="pricing-active-count" class="pricing-card-value">0</div><div class="pricing-card-sub">Active offers available to this team.</div></div>
@@ -1059,10 +1130,10 @@
     let loadedCounts = { addresses: 0, reps: 0, address_events: 0, sales_orders: 0, schedule_slots: 0, schedule_bookings: 0, sales_order_clawbacks: 0, fieldos_pricing_offers: 0 };
 
     function setDashboardHeader() {
-      els.dashboardTitle.textContent = 'FieldOS Dashboard';
-      els.dashboardSubtitle.textContent = 'Your dashboard scope is applied after sign-in.';
-      els.authTitle.textContent = 'FieldOS Dashboard Login';
-      els.authSubtitle.textContent = 'Sign in with your approved FieldOS dashboard email and password.';
+      els.dashboardTitle.textContent = 'Company Admin Dashboard';
+      els.dashboardSubtitle.textContent = '';
+      els.authTitle.textContent = 'Company Dashboard Login';
+      els.authSubtitle.textContent = 'Sign in with your company admin dashboard credentials.';
     }
 
     function normalizeTerritory(value) {
@@ -1575,7 +1646,7 @@
         return;
       }
 
-      els.status.textContent = canUseAllTeams() ? 'Loading company admin dashboard...' : 'Loading locked team dashboard...';
+      els.status.textContent = 'Loading your team dashboard... Company history tools load only for company admins.';
       els.status.classList.remove('error');
 
       try {
@@ -2998,9 +3069,6 @@
 
     function setActiveTab(tabName) {
       const companyOnlyTabs = new Set([
-        'pricing',
-        'sales-review',
-        'install-capacity',
         'reps-admin',
         'territories-admin',
         'boundaries-admin',
@@ -3395,20 +3463,6 @@
       document.body.classList.toggle('team-admin-locked', !allowed);
       updateTeamFilterOptions();
 
-      const teamLine = document.getElementById('team-scope-line');
-      if (teamLine && !allowed) {
-        const lockedLabel = access.allowedTeams.map(t => TEAM_LABELS[t] || t).join(', ') || 'your assigned team';
-        teamLine.textContent = `This team dashboard is locked to ${lockedLabel}. Company admin pages, management links, and other vendor data are hidden.`;
-      }
-
-      if (!allowed) {
-        const activeCompanyOnly = ['pricing','sales-review','install-capacity','reps-admin','territories-admin','boundaries-admin','data-quality','address-timeline','address-import','rep-qa','vendor-scorecard','admin-audit','daily-reports','historical-reporting','database-health'].some(name => {
-          const btn = document.getElementById('tab-' + name);
-          return btn && btn.classList.contains('active');
-        });
-        if (activeCompanyOnly && typeof setActiveTab === 'function') setActiveTab('overview');
-      }
-
       const note = document.getElementById('admin-access-note');
       if (note) {
         note.className = 'admin-alert';
@@ -3419,11 +3473,11 @@
 
       if (els.dashboardTitle && els.dashboardSubtitle) {
         if (allowed) {
-          els.dashboardTitle.textContent = 'Company Admin Dashboard';
-          els.dashboardSubtitle.textContent = 'Company-wide view for approved company admins.';
+          els.dashboardTitle.textContent = 'Company Admin Command Center';
+          els.dashboardSubtitle.textContent = 'Operational dashboard with focused workflow links for admin tasks.';
         } else {
           els.dashboardTitle.textContent = `${selectedTeamLabel()} Dashboard`;
-          els.dashboardSubtitle.textContent = 'Locked team dashboard. Only your assigned company/team data is available.';
+          els.dashboardSubtitle.textContent = 'Team-scoped dashboard for approved team users.';
         }
       }
 
@@ -3508,7 +3562,7 @@
     const originalSetActiveTabForAdmin = setActiveTab;
     setActiveTab = function(tabName) {
       const adminTabs = ['sales-review','reps-admin','territories-admin','boundaries-admin','data-quality','address-timeline','address-import','rep-qa','vendor-scorecard','admin-audit','daily-reports','historical-reporting','database-health'];
-      const restrictedAdminTabs = ['pricing','sales-review','install-capacity','reps-admin','territories-admin','boundaries-admin','data-quality','address-timeline','address-import','rep-qa','vendor-scorecard','admin-audit','daily-reports','historical-reporting','database-health'];
+      const restrictedAdminTabs = ['reps-admin','territories-admin','boundaries-admin','data-quality','address-timeline','address-import','rep-qa','vendor-scorecard','admin-audit','daily-reports','historical-reporting','database-health'];
       const isAdminTab = adminTabs.includes(tabName);
       const canShowAdmin = document.body.classList.contains('admin-enabled');
       if (restrictedAdminTabs.includes(tabName) && !canShowAdmin) {
