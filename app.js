@@ -568,28 +568,45 @@ function updateOfflineQueueUI() {
   }
 }
 
-function isMissingOptionalColumnError(err) {
+var OPTIONAL_EVENT_FIELDS = [
+  'decision_maker_spoken_to',
+  'follow_up_needed',
+  'sale_made',
+  'knocked_at',
+  'knocked_lat',
+  'knocked_lng',
+  'team_slug',
+  'team',
+  'lat',
+  'lng'
+];
+
+function missingOptionalEventField(err, payload) {
   var msg = String((err && (err.message || err.details || err.hint || err.code)) || '').toLowerCase();
-  return msg.indexOf('column') >= 0 && (
-    msg.indexOf('lat') >= 0 ||
-    msg.indexOf('lng') >= 0 ||
-    msg.indexOf('knocked_at') >= 0 ||
-    msg.indexOf('team') >= 0 ||
-    msg.indexOf('team_slug') >= 0
-  );
+  if (msg.indexOf('column') < 0 && msg.indexOf('schema cache') < 0) return '';
+  for (var i = 0; i < OPTIONAL_EVENT_FIELDS.length; i++) {
+    var field = OPTIONAL_EVENT_FIELDS[i];
+    if (msg.indexOf(field) >= 0 && Object.prototype.hasOwnProperty.call(payload || {}, field)) return field;
+  }
+  return '';
 }
 
-function stripOptionalEventFields(payload) {
+function stripOptionalEventFields(payload, err) {
   var copy = Object.assign({}, payload || {});
-  delete copy.lat;
-  delete copy.lng;
-  delete copy.knocked_lat;
-  delete copy.knocked_lng;
-  // Keep app from breaking if an optional field is not available.
-  // Run the included SQL so these fields persist going forward.
-  delete copy.team;
-  delete copy.team_slug;
+  var field = missingOptionalEventField(err, copy);
+  if (field) delete copy[field];
   return copy;
+}
+
+function insertAddressEventWithFallback(payload, attemptsLeft) {
+  var attempts = Number(attemptsLeft == null ? OPTIONAL_EVENT_FIELDS.length : attemptsLeft);
+  return supabaseClient.from('address_events').insert([payload]).then(function(res) {
+    if (!res.error) return res;
+    var field = missingOptionalEventField(res.error, payload);
+    if (!field || attempts <= 0) throw res.error;
+    var retryPayload = stripOptionalEventFields(payload, res.error);
+    return insertAddressEventWithFallback(retryPayload, attempts - 1);
+  });
 }
 
 
@@ -639,13 +656,8 @@ function stripOptionalTeamFields(payload) {
 
 function insertSupabaseRow(table, payload) {
   if (!hasSupabase()) return Promise.reject(new Error('App connection is not configured'));
+  if (table === 'address_events') return insertAddressEventWithFallback(payload);
   return supabaseClient.from(table).insert([payload]).then(function(res) {
-    if (res.error && table === 'address_events' && isMissingOptionalColumnError(res.error)) {
-      return supabaseClient.from(table).insert([stripOptionalEventFields(payload)]).then(function(retry) {
-        if (retry.error) throw retry.error;
-        return retry;
-      });
-    }
     if (res.error && table === 'sales_orders' && isMissingOptionalSalesColumnError(res.error)) {
       return supabaseClient.from(table).insert([stripOptionalSalesFields(payload)]).then(function(retry) {
         if (retry.error) throw retry.error;

@@ -318,6 +318,7 @@
       <div id="tab-overview" class="tab-panel active">
         <div class="grid-kpis">
           <div class="panel"><div class="kpi-label">Sales</div><div id="kpi-sales" class="kpi-value">0</div><div class="kpi-sub">Visible submitted sales</div></div>
+          <div class="panel"><div class="kpi-label">Doors Worked</div><div id="kpi-worked" class="kpi-value">0</div><div class="kpi-sub">Dispositions plus unmatched sales</div></div>
           <div class="panel"><div class="kpi-label">Today</div><div id="kpi-today" class="kpi-value">0</div><div class="kpi-sub">Sales created today</div></div>
           <div class="panel"><div class="kpi-label">Installed</div><div id="kpi-installed" class="kpi-value">0</div><div class="kpi-sub">Installed sales</div></div>
           <div class="panel"><div class="kpi-label">Needs Rescheduled</div><div id="kpi-rescheduled" class="kpi-value">0</div><div class="kpi-sub">Install follow-up required</div></div>
@@ -1387,6 +1388,105 @@
       .sort((a,b) => timeValue(b.created_at) - timeValue(a.created_at));
   }
 
+  function truthyFlag(value) {
+    if (value === true || value === 1) return true;
+    return ['true', '1', 'y', 'yes'].includes(String(value || '').toLowerCase().trim());
+  }
+
+  function isSaleDoorEvent(row) {
+    const status = String(firstNonEmpty(row?.status, row?.disposition, row?.outcome)).toLowerCase().trim();
+    const standardized = String(firstNonEmpty(row?.standardized_outcome, row?.standardizedOutcome)).toLowerCase().trim();
+    return truthyFlag(row?.sale_made) ||
+      ['mega', 'gig'].includes(status) ||
+      status.startsWith('sale') ||
+      standardized === 'converted';
+  }
+
+  function workedAddressKey(row, addressMap) {
+    const directId = firstNonEmpty(
+      row?.address_id,
+      row?.location_id,
+      row?.zito_location_id,
+      row?.external_id,
+      row?.external_location_id,
+      row?.partner_location_id,
+      row?.zml_partner_location_id,
+      row?.zml_location_id,
+      row?.location_external_id
+    );
+    if (directId) return 'id:' + idKey(directId);
+
+    const linked = getLinkedAddress(row, addressMap);
+    const linkedId = firstNonEmpty(
+      linked?.id,
+      linked?.address_id,
+      linked?.external_location_id,
+      linked?.partner_location_id,
+      linked?.zml_partner_location_id
+    );
+    if (linkedId) return 'id:' + idKey(linkedId);
+
+    const label = buildAddressLabel(row, addressMap)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    return label && label !== '—' ? 'address:' + label : '';
+  }
+
+  function workedDayKey(row) {
+    return String(firstNonEmpty(row?.created_at, row?.knocked_at, row?.updated_at)).slice(0, 10);
+  }
+
+  function workedRepKey(row) {
+    return getRepName(row).toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  function saleWorkedMatchKeys(row, addressMap) {
+    const addressKey = workedAddressKey(row, addressMap);
+    const dayKey = workedDayKey(row);
+    const repKey = workedRepKey(row);
+    if (!addressKey || !dayKey) return { exact: '', loose: '' };
+    return {
+      exact: [addressKey, repKey, dayKey].join('|'),
+      loose: [addressKey, dayKey].join('|')
+    };
+  }
+
+  function syntheticSaleStatus(row) {
+    const packageName = getPackageName(row).toLowerCase();
+    if (packageName.includes('gig')) return 'gig';
+    if (packageName.includes('mega')) return 'mega';
+    return 'sale';
+  }
+
+  function workedDoorRecords() {
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    const events = state.address_events.filter(row => rowMatchesUi(row, addressMap, slotMap));
+    const exactSaleEvents = new Set();
+    const looseSaleEvents = new Set();
+
+    events.filter(isSaleDoorEvent).forEach(event => {
+      const keys = saleWorkedMatchKeys(event, addressMap);
+      if (keys.exact) exactSaleEvents.add(keys.exact);
+      if (keys.loose) looseSaleEvents.add(keys.loose);
+    });
+
+    const syntheticSales = state.sales_orders
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .filter(sale => {
+        const keys = saleWorkedMatchKeys(sale, addressMap);
+        return !keys.exact || (!exactSaleEvents.has(keys.exact) && !looseSaleEvents.has(keys.loose));
+      })
+      .map(sale => Object.assign({}, sale, {
+        __synthetic_sale_worked: true,
+        status: syntheticSaleStatus(sale),
+        sale_made: true
+      }));
+
+    return events.concat(syntheticSales);
+  }
+
   function activityRecords() {
     const f = filters();
     const addressMap = buildAddressMap();
@@ -1448,7 +1548,7 @@
 
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
-    state.address_events.forEach(ev => {
+    workedDoorRecords().forEach(ev => {
       const name = getRepName(ev);
       if (!name) return;
       const rec = ensure(name);
@@ -1649,6 +1749,7 @@
     const close = worked ? renderedState.sales.length / worked : 0;
 
     setText('kpi-sales', renderedState.sales.length);
+    setText('kpi-worked', worked);
     setText('kpi-today', todaySales);
     setText('kpi-installed', installed);
     setText('kpi-rescheduled', rescheduled);
@@ -1691,8 +1792,7 @@
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
 
-    state.address_events.forEach(ev => {
-      if (!rowMatchesUi(ev, addressMap, slotMap)) return;
+    workedDoorRecords().forEach(ev => {
       const territory = getTerritory(ev, addressMap, slotMap) || 'Unknown';
       const key = normalizeTerritory(territory);
       if (!map.has(key)) map.set(key, { territory, sales: 0, worked: 0 });
@@ -2049,8 +2149,7 @@
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
     const territoryMap = new Map();
-    state.address_events.forEach(ev => {
-      if (!rowMatchesUi(ev, addressMap, slotMap)) return;
+    workedDoorRecords().forEach(ev => {
       const territory = getTerritory(ev, addressMap, slotMap) || 'Unknown';
       const key = normalizeTerritory(territory);
       if (!territoryMap.has(key)) territoryMap.set(key, { label: territory, worked: 0, sales: 0 });
@@ -2134,8 +2233,7 @@
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
 
-    return state.address_events
-      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+    return workedDoorRecords()
       .map(row => {
         const linked = getLinkedAddress(row, addressMap);
         const coords = getLatLng(row, linked);
