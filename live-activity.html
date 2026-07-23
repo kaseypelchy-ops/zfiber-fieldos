@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FieldOS Live User Activity</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { --bg:#020617; --panel:#0f172a; --panel2:#111827; --border:#1e293b; --text:#e5e7eb; --muted:#94a3b8; --accent:#22d3ee; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --radius:18px; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:linear-gradient(135deg,#020617,#0f172a); color:var(--text); font-family:Arial,Helvetica,sans-serif; padding:24px; }
+    .wrap { max-width:1350px; margin:0 auto; }
+    .top { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+    h1,h2,p { margin:0; }
+    .eyebrow { color:var(--accent); font-size:12px; letter-spacing:.18em; text-transform:uppercase; font-weight:800; margin-bottom:8px; }
+    .sub { color:var(--muted); margin-top:8px; line-height:1.45; }
+    .panel { background:rgba(15,23,42,.94); border:1px solid var(--border); border-radius:var(--radius); padding:18px; box-shadow:0 20px 55px rgba(0,0,0,.25); }
+    .auth { max-width:520px; margin:10vh auto; }
+    input,select,button { width:100%; border:1px solid #334155; border-radius:12px; background:#020617; color:var(--text); padding:12px; font-size:14px; }
+    button { cursor:pointer; background:linear-gradient(135deg,#06b6d4,#2563eb); border:none; font-weight:800; }
+    .small { width:auto; padding:10px 12px; font-size:12px; border-radius:10px; }
+    .ghost { background:#1e293b; border:1px solid #334155; }
+    .grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-bottom:18px; }
+    .card { background:rgba(30,41,59,.6); border:1px solid rgba(148,163,184,.16); border-radius:16px; padding:14px; }
+    .label { color:var(--muted); font-size:11px; letter-spacing:.11em; text-transform:uppercase; font-weight:900; }
+    .value { font-size:30px; font-weight:900; margin-top:8px; }
+    .filters { display:grid; grid-template-columns:1fr 1fr 1fr 1fr auto; gap:10px; margin-bottom:16px; }
+    .table-wrap { overflow:auto; border:1px solid rgba(148,163,184,.16); border-radius:14px; max-height:68vh; }
+    table { width:100%; border-collapse:collapse; min-width:1050px; }
+    th,td { padding:11px 10px; border-bottom:1px solid rgba(148,163,184,.12); text-align:left; font-size:13px; vertical-align:top; }
+    th { position:sticky; top:0; background:#0f172a; z-index:2; color:#cbd5e1; }
+    .pill { display:inline-flex; align-items:center; border-radius:999px; padding:5px 9px; font-size:12px; font-weight:900; border:1px solid rgba(148,163,184,.2); }
+    .active { background:rgba(34,197,94,.12); color:#bbf7d0; }
+    .recent { background:rgba(245,158,11,.12); color:#fde68a; }
+    .inactive { background:rgba(148,163,184,.10); color:#cbd5e1; }
+    .out { background:rgba(239,68,68,.12); color:#fecaca; }
+    .hidden { display:none !important; }
+    .error { background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.35); color:#fecaca; padding:12px; border-radius:12px; margin-top:12px; }
+    @media (max-width:950px) { .grid,.filters { grid-template-columns:1fr; } .top { align-items:stretch; } .small { width:100%; } }
+  </style>
+</head>
+<body>
+  <div id="auth" class="panel auth">
+    <div class="eyebrow">FieldOS</div>
+    <h1>Live User Activity</h1>
+    <p class="sub">Company-admin view of who has opened the app or dashboards and who has been active recently.</p>
+    <div style="height:14px"></div>
+    <input id="email" type="email" placeholder="Email" autocomplete="email" />
+    <div style="height:10px"></div>
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+    <div style="height:10px"></div>
+    <button id="login">Sign In</button>
+    <div id="auth-error" class="error hidden"></div>
+  </div>
+
+  <div id="app" class="wrap hidden">
+    <div class="top">
+      <div>
+        <div class="eyebrow">Company Admin</div>
+        <h1>Live User Activity</h1>
+        <p id="status-line" class="sub">Loading activity...</p>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <button id="refresh" class="small">Refresh</button>
+        <button id="logout" class="small ghost">Log Out</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><div class="label">Active Now</div><div id="kpi-active" class="value">0</div></div>
+      <div class="card"><div class="label">Recently Active</div><div id="kpi-recent" class="value">0</div></div>
+      <div class="card"><div class="label">Inactive Today</div><div id="kpi-inactive" class="value">0</div></div>
+      <div class="card"><div class="label">Logged Out</div><div id="kpi-out" class="value">0</div></div>
+      <div class="card"><div class="label">Total Sessions</div><div id="kpi-total" class="value">0</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="filters">
+        <select id="status-filter">
+          <option value="all">All Statuses</option>
+          <option value="Active Now">Active Now</option>
+          <option value="Recently Active">Recently Active</option>
+          <option value="Inactive Today">Inactive Today</option>
+          <option value="Logged Out">Logged Out</option>
+        </select>
+        <select id="team-filter"><option value="all">All Teams</option></select>
+        <select id="page-filter"><option value="all">All Pages</option></select>
+        <input id="search" type="search" placeholder="Search user, rep, page, URL..." />
+        <select id="hours-filter">
+          <option value="12">Last 12 hours</option>
+          <option value="24" selected>Last 24 hours</option>
+          <option value="72">Last 72 hours</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>User / Rep</th>
+              <th>Team</th>
+              <th>Role</th>
+              <th>Page</th>
+              <th>Login</th>
+              <th>Last Seen</th>
+              <th>Minutes Ago</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+const SUPABASE_URL = 'https://zyioicczczmlsksxysqw.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5aW9pY2N6Y3ptbHNrc3h5c3F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzYyODMsImV4cCI6MjA5ODMxMjI4M30.Wfcn5_JA73k-Dq6YX0KpHZ3HLNsWa87v7TE3owDpOyM';
+window.FIELDOS_SUPABASE_URL = SUPABASE_URL;
+window.FIELDOS_SUPABASE_ANON_KEY = SUPABASE_ANON_KEY;
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const els = {
+  auth: document.getElementById('auth'), app: document.getElementById('app'), email: document.getElementById('email'), password: document.getElementById('password'), login: document.getElementById('login'), authError: document.getElementById('auth-error'), logout: document.getElementById('logout'), refresh: document.getElementById('refresh'), rows: document.getElementById('rows'), statusLine: document.getElementById('status-line'), statusFilter: document.getElementById('status-filter'), teamFilter: document.getElementById('team-filter'), pageFilter: document.getElementById('page-filter'), search: document.getElementById('search'), hoursFilter: document.getElementById('hours-filter'), kpiActive: document.getElementById('kpi-active'), kpiRecent: document.getElementById('kpi-recent'), kpiInactive: document.getElementById('kpi-inactive'), kpiOut: document.getElementById('kpi-out'), kpiTotal: document.getElementById('kpi-total')
+};
+let activityRows = [];
+function esc(v){ return String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtDate(v){ if(!v) return '—'; const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleString(); }
+function statusClass(s){ if(s === 'Active Now') return 'active'; if(s === 'Recently Active') return 'recent'; if(s === 'Logged Out') return 'out'; return 'inactive'; }
+function teamLabel(t){ return ({fiber:'Fiber Sales Team', sfi:'Sales Focus Inc.', lynxx:'Lynxx', all:'All Sales Teams'}[String(t||'').toLowerCase()] || t || '—'); }
+function showAuth(msg){ els.auth.classList.remove('hidden'); els.app.classList.add('hidden'); if(msg){ els.authError.textContent = msg; els.authError.classList.remove('hidden'); } }
+function showApp(){ els.auth.classList.add('hidden'); els.app.classList.remove('hidden'); els.authError.classList.add('hidden'); }
+async function signIn(){
+  els.authError.classList.add('hidden');
+  const { error } = await supabaseClient.auth.signInWithPassword({ email: els.email.value.trim(), password: els.password.value });
+  if (error) return showAuth(error.message || 'Sign in failed.');
+  await loadActivity();
+}
+async function signOut(){ await supabaseClient.auth.signOut(); showAuth(); }
+async function loadActivity(){
+  const hours = Number(els.hoursFilter.value || 24);
+  const { data, error } = await supabaseClient.rpc('fieldos_get_live_user_activity', { p_hours: hours });
+  if (error) { showAuth(error.message || 'Access denied.'); return; }
+  activityRows = Array.isArray(data) ? data : [];
+  showApp();
+  populateFilters();
+  render();
+  els.statusLine.textContent = 'Loaded ' + activityRows.length + ' session(s). Last refresh: ' + new Date().toLocaleTimeString();
+}
+function populateFilters(){
+  const currentTeam = els.teamFilter.value || 'all';
+  const currentPage = els.pageFilter.value || 'all';
+  const teams = [...new Set(activityRows.map(r => r.team_slug).filter(Boolean))].sort();
+  const pages = [...new Set(activityRows.map(r => r.page_name).filter(Boolean))].sort();
+  els.teamFilter.innerHTML = '<option value="all">All Teams</option>' + teams.map(t => '<option value="'+esc(t)+'">'+esc(teamLabel(t))+'</option>').join('');
+  els.pageFilter.innerHTML = '<option value="all">All Pages</option>' + pages.map(p => '<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
+  if ([...els.teamFilter.options].some(o => o.value === currentTeam)) els.teamFilter.value = currentTeam;
+  if ([...els.pageFilter.options].some(o => o.value === currentPage)) els.pageFilter.value = currentPage;
+}
+function filteredRows(){
+  const st = els.statusFilter.value;
+  const tm = els.teamFilter.value;
+  const pg = els.pageFilter.value;
+  const q = els.search.value.trim().toLowerCase();
+  return activityRows.filter(r => {
+    if (st !== 'all' && r.activity_status !== st) return false;
+    if (tm !== 'all' && r.team_slug !== tm) return false;
+    if (pg !== 'all' && r.page_name !== pg) return false;
+    if (q) {
+      const hay = [r.user_email, r.rep_name, r.team_slug, r.role, r.page_name, r.page_url].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function render(){
+  const rows = filteredRows();
+  const count = s => activityRows.filter(r => r.activity_status === s).length;
+  els.kpiActive.textContent = count('Active Now');
+  els.kpiRecent.textContent = count('Recently Active');
+  els.kpiInactive.textContent = count('Inactive Today') + activityRows.filter(r => r.activity_status === 'Inactive').length;
+  els.kpiOut.textContent = count('Logged Out');
+  els.kpiTotal.textContent = activityRows.length;
+  els.rows.innerHTML = rows.map(r => {
+    const person = r.user_email || r.rep_name || 'Unknown user';
+    const repLine = r.rep_name && r.rep_name !== person ? '<div style="color:#94a3b8;margin-top:3px;">Rep: '+esc(r.rep_name)+'</div>' : '';
+    return '<tr>'+
+      '<td><span class="pill '+statusClass(r.activity_status)+'">'+esc(r.activity_status)+'</span></td>'+
+      '<td><strong>'+esc(person)+'</strong>'+repLine+'</td>'+
+      '<td>'+esc(teamLabel(r.team_slug))+'</td>'+
+      '<td>'+esc(r.role || '—')+'</td>'+
+      '<td><strong>'+esc(r.page_name || '—')+'</strong><div style="color:#94a3b8;margin-top:3px;max-width:320px;overflow:hidden;text-overflow:ellipsis;">'+esc(r.page_url || '')+'</div></td>'+
+      '<td>'+fmtDate(r.login_at)+'</td>'+
+      '<td>'+fmtDate(r.last_seen_at)+'</td>'+
+      '<td>'+esc(r.minutes_since_seen ?? '—')+'</td>'+
+    '</tr>';
+  }).join('') || '<tr><td colspan="8" style="color:#94a3b8;">No matching activity.</td></tr>';
+}
+els.login.addEventListener('click', signIn);
+els.password.addEventListener('keydown', e => { if(e.key === 'Enter') signIn(); });
+els.logout.addEventListener('click', signOut);
+els.refresh.addEventListener('click', loadActivity);
+[els.statusFilter, els.teamFilter, els.pageFilter, els.search].forEach(el => el.addEventListener('input', render));
+els.hoursFilter.addEventListener('change', loadActivity);
+supabaseClient.auth.onAuthStateChange((_event, session) => { if(session) loadActivity(); else showAuth(); });
+supabaseClient.auth.getSession().then(({data}) => { if(data && data.session) loadActivity(); else showAuth(); });
+setInterval(() => { if(!els.app.classList.contains('hidden')) loadActivity(); }, 60000);
+</script>
+<script defer src="fieldos-user-activity.js?v=user-activity-20260723"></script>
+</body>
+</html>
