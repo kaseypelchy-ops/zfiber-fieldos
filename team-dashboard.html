@@ -330,7 +330,7 @@
           <div class="panel-head">
             <div>
               <h2>Install Schedule Availability</h2>
-              <div class="panel-sub">Read-only upcoming capacity by territory. This view follows the selected team and territory, but intentionally ignores sales date, rep, status, and search filters.</div>
+              <div class="panel-sub">Read-only upcoming capacity by territory. Availability is reconciled against slot bookings, stored booked counts, and active sales with matching install dates and times. This view follows the selected team and territory, but intentionally ignores sales date, rep, status, and search filters.</div>
             </div>
             <div class="schedule-toolbar">
               <select id="schedule-horizon" aria-label="Schedule range">
@@ -342,11 +342,12 @@
           </div>
           <div class="schedule-kpis">
             <div class="schedule-kpi"><div class="schedule-kpi-label">Openings Available</div><div id="schedule-kpi-open" class="schedule-kpi-value">0</div><div class="schedule-kpi-sub">Remaining appointment capacity</div></div>
-            <div class="schedule-kpi"><div class="schedule-kpi-label">Booked Installs</div><div id="schedule-kpi-booked" class="schedule-kpi-value">0</div><div class="schedule-kpi-sub">Active bookings in this window</div></div>
+            <div class="schedule-kpi"><div class="schedule-kpi-label">Booked Installs</div><div id="schedule-kpi-booked" class="schedule-kpi-value">0</div><div class="schedule-kpi-sub">Bookings plus scheduled active sales</div></div>
             <div class="schedule-kpi"><div class="schedule-kpi-label">Utilization</div><div id="schedule-kpi-utilization" class="schedule-kpi-value">0.0%</div><div class="schedule-kpi-sub">Booked capacity percentage</div></div>
             <div class="schedule-kpi"><div class="schedule-kpi-label">Next Available</div><div id="schedule-kpi-next" class="schedule-kpi-value">—</div><div id="schedule-kpi-next-sub" class="schedule-kpi-sub">No opening found</div></div>
           </div>
           <div id="schedule-calendar" class="schedule-scroll"><div class="schedule-empty" style="padding:16px;">Schedule data is loading.</div></div>
+          <div id="schedule-reconciliation-note" class="panel-sub" style="margin-top:10px;"></div>
           <div class="schedule-legend">
             <span><i class="schedule-dot open"></i>Open</span>
             <span><i class="schedule-dot limited"></i>One opening left</span>
@@ -669,7 +670,7 @@
   };
 
   let dashboardAccess = { resolved: false, email: '', isCompanyAdmin: false, allowedTeams: [] };
-  let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
+  let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
   let renderedState = { sales: [], activity: [], reps: [] };
   let refreshTimer = null;
   let loading = false;
@@ -1098,7 +1099,7 @@
 
   async function signOut() {
     await supabaseClient.auth.signOut();
-    state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
+    state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
     showAuth('Signed out.');
   }
 
@@ -1174,16 +1175,28 @@
       ];
       if (selectedTeam !== 'all') slotFilters.unshift({ type: 'eq', column: 'team_slug', value: selectedTeam });
 
-      const slots = await fetchAllPages('schedule_slots', {
-        order: { column: 'slot_date', ascending: true },
-        filters: slotFilters,
-        maxRecords: 5000
-      });
+      const scheduleSalesFilters = [
+        { type: 'gte', column: 'install_date', value: scheduleWindow.start },
+        { type: 'lte', column: 'install_date', value: scheduleWindow.end }
+      ];
+      const [slots, scheduleSalesOrders] = await Promise.all([
+        fetchAllPages('schedule_slots', {
+          order: { column: 'slot_date', ascending: true },
+          filters: slotFilters,
+          maxRecords: 5000
+        }),
+        fetchOptional('sales_orders', {
+          order: { column: 'install_date', ascending: true },
+          filters: scheduleSalesFilters,
+          maxRecords: 5000
+        })
+      ]);
       const bookingResult = await fetchScheduleBookingsForSlots(slots);
       const addressMap = buildAddressMap();
       const slotMap = new Map(slots.map(slot => [idKey(slot.id), slot]));
       state.schedule_slots = slots.filter(row => teamRow(row, addressMap, slotMap));
       state.schedule_bookings = bookingResult.rows.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_sales_orders = scheduleSalesOrders.filter(row => teamRow(row, addressMap, slotMap));
       state.schedule_bookings_loaded = bookingResult.loaded;
       populateFilters();
       renderScheduleAvailability();
@@ -1244,6 +1257,7 @@
       const salesFilters = [];
       const slotFilters = [];
       const bookingFilters = [];
+      const scheduleSalesFilters = [];
 
       if (selectedTeam !== 'all') {
         addressFilters.push({ type: 'eq', column: 'team_slug', value: selectedTeam });
@@ -1267,12 +1281,15 @@
       const scheduleWindow = scheduleDateWindow(14);
       slotFilters.push({ type: 'gte', column: 'slot_date', value: scheduleWindow.start });
       slotFilters.push({ type: 'lte', column: 'slot_date', value: scheduleWindow.end });
+      scheduleSalesFilters.push({ type: 'gte', column: 'install_date', value: scheduleWindow.start });
+      scheduleSalesFilters.push({ type: 'lte', column: 'install_date', value: scheduleWindow.end });
 
-      const [addresses, reps, addressEvents, salesOrders, slots, activityBookings] = await Promise.all([
+      const [addresses, reps, addressEvents, salesOrders, scheduleSalesOrders, slots, activityBookings] = await Promise.all([
         fetchOptional('addresses', { order: { column: 'address1', ascending: true }, filters: addressFilters, maxRecords: 20000 }),
         fetchOptional('reps', { order: { column: 'full_name', ascending: true }, filters: repFilters }),
         fetchOptional('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters, maxRecords: 10000 }),
         fetchOptional('sales_orders', { order: { column: 'created_at', ascending: false }, filters: salesFilters, maxRecords: 5000 }),
+        fetchOptional('sales_orders', { order: { column: 'install_date', ascending: true }, filters: scheduleSalesFilters, maxRecords: 5000 }),
         fetchOptional('schedule_slots', { order: { column: 'slot_date', ascending: true }, filters: slotFilters, maxRecords: 5000 }),
         fetchOptional('schedule_bookings', { order: { column: 'created_at', ascending: false }, filters: bookingFilters, maxRecords: 5000 })
       ]);
@@ -1286,6 +1303,7 @@
         reps: reps.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         address_events: addressEvents.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         sales_orders: salesOrders.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        schedule_sales_orders: scheduleSalesOrders.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         schedule_slots: slots.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         schedule_bookings: scheduleBookingResult.rows.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         schedule_activity_bookings: activityBookings.filter(r => teamRow(r, addressMapAll, slotMapAll)),
@@ -1624,6 +1642,55 @@
     return 'open';
   }
 
+  function scheduleTimeKey(value) {
+    const sortValue = scheduleTimeSortValue(value);
+    if (sortValue !== 9999) return String(sortValue);
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  function scheduleInstallDate(row) {
+    return String(firstNonEmpty(row?.legacy_new_install_date, row?.install_date, row?.preferred_install_date, row?.appointment_date)).slice(0, 10);
+  }
+
+  function scheduleInstallTime(row) {
+    return String(firstNonEmpty(row?.legacy_new_install_time, row?.install_time, row?.install_slot, row?.preferred_install_time, row?.appointment_time)).trim();
+  }
+
+  function scheduleSaleIsActive(row) {
+    const key = lifecycle(row).key;
+    return !['canceled', 'installed', 'invoiced', 'needs_rescheduled'].includes(key);
+  }
+
+  function scheduleIdentityKeys(row) {
+    const keys = [];
+    const addressId = idKey(row?.address_id);
+    const phone = String(firstNonEmpty(row?.phone, row?.customer_phone, row?.mobile, row?.cell_phone)).replace(/\D/g, '');
+    const email = String(firstNonEmpty(row?.email, row?.customer_email)).trim().toLowerCase();
+    const customer = getCustomerName(row).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (addressId) keys.push('address:' + addressId);
+    if (phone) keys.push('phone:' + phone.slice(-10));
+    if (email) keys.push('email:' + email);
+    if (customer) keys.push('customer:' + customer);
+    return [...new Set(keys)];
+  }
+
+  function schedulePrimaryIdentity(row) {
+    const addressId = idKey(row?.address_id);
+    const phone = String(firstNonEmpty(row?.phone, row?.customer_phone, row?.mobile, row?.cell_phone)).replace(/\D/g, '');
+    const email = String(firstNonEmpty(row?.email, row?.customer_email)).trim().toLowerCase();
+    const rowId = idKey(row?.id);
+    const customer = getCustomerName(row).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (addressId) return 'address:' + addressId;
+    if (phone) return 'phone:' + phone.slice(-10);
+    if (email) return 'email:' + email;
+    if (rowId) return 'row:' + rowId;
+    return 'customer:' + customer;
+  }
+
+  function scheduleSlotMatchKey(territory, date, time) {
+    return [normalizeTerritory(territory), String(date || '').slice(0, 10), scheduleTimeKey(time)].join('|');
+  }
+
   function buildScheduleAvailability() {
     const horizon = Math.max(7, Math.min(14, Number(els.scheduleHorizon?.value || 7)));
     const dates = Array.from({ length: horizon }, (_, index) => addDaysIso(todayIso(), index));
@@ -1637,17 +1704,62 @@
       .filter(slot => selectedTerritory === 'all' || normalizeTerritory(getTerritory(slot, addressMap, slotMap)) === normalizeTerritory(selectedTerritory))
       .filter(slot => dateSet.has(scheduleSlotDate(slot)));
 
+    const slotsByMatchKey = new Map();
+    slots.forEach(slot => {
+      const key = scheduleSlotMatchKey(getTerritory(slot, addressMap, slotMap) || slot.territory, scheduleSlotDate(slot), scheduleSlotTime(slot));
+      if (!slotsByMatchKey.has(key)) slotsByMatchKey.set(key, []);
+      slotsByMatchKey.get(key).push(slot);
+    });
+
     const bookingCounts = new Map();
+    const bookingIdentityBySlot = new Map();
     (state.schedule_bookings || [])
       .filter(scheduleBookingIsActive)
       .filter(booking => teamRow(booking, addressMap, slotMap))
       .forEach(booking => {
         const slotId = idKey(booking.schedule_slot_id) || idKey(booking.slot_id);
-        if (slotId) bookingCounts.set(slotId, (bookingCounts.get(slotId) || 0) + 1);
+        if (!slotId) return;
+        bookingCounts.set(slotId, (bookingCounts.get(slotId) || 0) + 1);
+        if (!bookingIdentityBySlot.has(slotId)) bookingIdentityBySlot.set(slotId, new Set());
+        scheduleIdentityKeys(booking).forEach(key => bookingIdentityBySlot.get(slotId).add(key));
+      });
+
+    const scheduledSaleCounts = new Map();
+    const unmatchedSaleCounts = new Map();
+    const seenSaleIdentityBySlot = new Map();
+    let salesWithoutMatchingSlot = 0;
+
+    (state.schedule_sales_orders || [])
+      .filter(scheduleSaleIsActive)
+      .filter(sale => teamRow(sale, addressMap, slotMap))
+      .filter(sale => selectedTerritory === 'all' || normalizeTerritory(getTerritory(sale, addressMap, slotMap)) === normalizeTerritory(selectedTerritory))
+      .forEach(sale => {
+        const date = scheduleInstallDate(sale);
+        const time = scheduleInstallTime(sale);
+        if (!dateSet.has(date)) return;
+        const territory = getTerritory(sale, addressMap, slotMap) || sale.territory;
+        const candidates = slotsByMatchKey.get(scheduleSlotMatchKey(territory, date, time)) || [];
+        if (!time || !candidates.length) {
+          salesWithoutMatchingSlot += 1;
+          return;
+        }
+
+        const slotId = idKey(candidates[0].id);
+        if (!seenSaleIdentityBySlot.has(slotId)) seenSaleIdentityBySlot.set(slotId, new Set());
+        const seen = seenSaleIdentityBySlot.get(slotId);
+        const identities = scheduleIdentityKeys(sale);
+        const dedupeKey = schedulePrimaryIdentity(sale);
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+
+        scheduledSaleCounts.set(slotId, (scheduledSaleCounts.get(slotId) || 0) + 1);
+        const bookingKeys = bookingIdentityBySlot.get(slotId) || new Set();
+        const matchedBooking = identities.some(key => bookingKeys.has(key));
+        if (!matchedBooking) unmatchedSaleCounts.set(slotId, (unmatchedSaleCounts.get(slotId) || 0) + 1);
       });
 
     const territories = new Map();
-    const totals = { capacity: 0, booked: 0, available: 0, next: null };
+    const totals = { capacity: 0, booked: 0, available: 0, next: null, salesWithoutMatchingSlot };
 
     slots.forEach(slot => {
       const territory = getTerritory(slot, addressMap, slotMap) || slot.territory || 'Unknown Territory';
@@ -1657,7 +1769,9 @@
       const capacity = scheduleCapacity(slot);
       const counted = bookingCounts.get(idKey(slot.id)) || 0;
       const stored = Number(firstNonEmpty(slot.booked_count, slot.booked, slot.used, 0)) || 0;
-      const booked = state.schedule_bookings_loaded ? counted : Math.max(counted, stored);
+      const scheduledSales = scheduledSaleCounts.get(idKey(slot.id)) || 0;
+      const unmatchedSales = unmatchedSaleCounts.get(idKey(slot.id)) || 0;
+      const booked = Math.max(stored, counted + unmatchedSales, scheduledSales);
       const available = Math.max(0, capacity - booked);
       const oversoldBy = Math.max(0, booked - capacity);
       const statusClass = scheduleDayClass(available, capacity, oversoldBy);
@@ -1696,6 +1810,13 @@
     setText('schedule-kpi-next-sub', data.totals.next
       ? data.totals.next.time + ' • ' + data.totals.next.territory + ' • ' + data.totals.next.available + ' open'
       : 'No opening found in this window');
+    const reconciliationNote = document.getElementById('schedule-reconciliation-note');
+    if (reconciliationNote) {
+      reconciliationNote.textContent = data.totals.salesWithoutMatchingSlot
+        ? data.totals.salesWithoutMatchingSlot + ' active sale(s) have an install date in this window but do not match an available territory/date/time slot. Review those sales or the Setup schedule.'
+        : 'Capacity is reconciled against active booking rows, slot booked counts, and active sales with matching install dates and times.';
+      reconciliationNote.style.color = data.totals.salesWithoutMatchingSlot ? '#fbbf24' : '';
+    }
 
     if (!data.rows.length) {
       els.scheduleCalendar.innerHTML = '<div class="schedule-empty" style="padding:16px;">No upcoming schedule slots were found for ' + escapeHtml(teamLabel()) + (els.territory?.value && els.territory.value !== 'all' ? ' in ' + escapeHtml(els.territory.value) : '') + '. Confirm future capacity is loaded in Setup.</div>';

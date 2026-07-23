@@ -436,6 +436,13 @@ function pricingSummaryText(snapshot) {
   return parts.filter(Boolean).join(' | ');
 }
 
+function refreshScheduleRealtimeView() {
+  schedFetch(function(ok) {
+    var picker = document.getElementById('sched-picker');
+    if (ok && picker && !picker.classList.contains('hidden')) schedRenderWeek();
+  });
+}
+
 function startScheduleRealtime() {
   if (!supabaseClient) return;
 
@@ -444,53 +451,25 @@ function startScheduleRealtime() {
     scheduleRealtimeChannel = null;
   }
 
+  function rowMatchesActiveSchedule(payload) {
+    var row = payload && (payload.new || payload.old);
+    if (!row) return true;
+    var scheduleTerritory = getScheduleTerritory ? getScheduleTerritory() : (activeTerritory || '');
+    var rowTerritory = String(row.territory || '').trim();
+    return !(scheduleTerritory && rowTerritory && rowTerritory !== scheduleTerritory);
+  }
+
   scheduleRealtimeChannel = supabaseClient
     .channel('fieldos-schedule-realtime')
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'schedule_slots'
-      },
-      function(payload) {
-        var row = payload.new || payload.old;
-        if (!row) return;
-
-        var scheduleTerritory = getScheduleTerritory ? getScheduleTerritory() : (activeTerritory || '');
-        var rowTerritory = String(row.territory || '').trim();
-
-        if (scheduleTerritory && rowTerritory && rowTerritory !== scheduleTerritory) return;
-
-        fetchScheduleSlotsFromSupabase(scheduleTerritory)
-          .then(function(rows) {
-            var data = {};
-            rows.forEach(function(r) {
-              var date = String(r.slot_date || '').trim();
-              var time = schedNormalizeTime(r.time_label || '');
-              if (!date || !time) return;
-
-              if (!data[date]) data[date] = {};
-              data[date][time] = {
-                cap: Number(r.capacity || 0),
-                booked: Number(r.booked_count || 0),
-                avail: Math.max(0, Number(r.capacity || 0) - Number(r.booked_count || 0)),
-                slotId: r.id,
-                territory: r.territory
-              };
-            });
-
-            schedData = data;
-
-            if (!document.getElementById('sched-picker').classList.contains('hidden')) {
-              schedRenderWeek();
-            }
-          })
-          .catch(function(err) {
-            console.error('Realtime schedule refresh failed', err);
-          });
-      }
-    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, function(payload) {
+      if (rowMatchesActiveSchedule(payload)) refreshScheduleRealtimeView();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, function(payload) {
+      if (rowMatchesActiveSchedule(payload)) refreshScheduleRealtimeView();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, function(payload) {
+      if (rowMatchesActiveSchedule(payload)) refreshScheduleRealtimeView();
+    })
     .subscribe();
 }
 
@@ -3257,6 +3236,146 @@ function schedThisMonday() {
   return t;
 }
 
+function schedNormalizeStatus(value) {
+  return String(value || '').toLowerCase().trim().replace(/\s+/g, '_');
+}
+
+function schedBookingIsActive(row) {
+  var status = schedNormalizeStatus((row && (row.status || row.booking_status || row.install_status)) || '');
+  return ['canceled','cancelled','void','voided','rejected','deleted'].indexOf(status) < 0;
+}
+
+function schedSaleIsActive(row) {
+  var review = schedNormalizeStatus((row && (row.review_status || row.admin_status || row.processing_status)) || 'submitted');
+  var outcome = schedNormalizeStatus((row && (row.install_outcome || row.install_status)) || '');
+  if (['canceled','cancelled','rejected','void','voided'].indexOf(review) >= 0) return false;
+  if (['canceled','cancelled','void','voided','installed','complete','completed','needs_rescheduled','reschedule','rescheduled'].indexOf(outcome) >= 0) return false;
+  if (['installed','invoiced','needs_rescheduled','reschedule','rescheduled'].indexOf(review) >= 0) return false;
+  if (row && (row.invoice_id || row.invoice_batch_id || row.invoiced_at)) return false;
+  return true;
+}
+
+function schedCustomerName(row) {
+  if (!row) return '';
+  return String(row.customer_name || [row.first_name, row.last_name].filter(Boolean).join(' ') || [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ') || row.name || '').trim();
+}
+
+function schedIdentityKeys(row) {
+  var keys = [];
+  var addressId = row && row.address_id != null ? String(row.address_id).trim() : '';
+  var phone = String((row && (row.phone || row.customer_phone || row.mobile || row.cell_phone)) || '').replace(/\D/g, '');
+  var email = String((row && (row.email || row.customer_email)) || '').trim().toLowerCase();
+  var customer = schedCustomerName(row).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (addressId) keys.push('address:' + addressId);
+  if (phone) keys.push('phone:' + phone.slice(-10));
+  if (email) keys.push('email:' + email);
+  if (customer) keys.push('customer:' + customer);
+  return keys.filter(function(value, index, all) { return all.indexOf(value) === index; });
+}
+
+function schedPrimaryIdentity(row) {
+  var addressId = row && row.address_id != null ? String(row.address_id).trim() : '';
+  var phone = String((row && (row.phone || row.customer_phone || row.mobile || row.cell_phone)) || '').replace(/\D/g, '');
+  var email = String((row && (row.email || row.customer_email)) || '').trim().toLowerCase();
+  var rowId = row && row.id != null ? String(row.id).trim() : '';
+  var customer = schedCustomerName(row).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (addressId) return 'address:' + addressId;
+  if (phone) return 'phone:' + phone.slice(-10);
+  if (email) return 'email:' + email;
+  if (rowId) return 'row:' + rowId;
+  return 'customer:' + customer;
+}
+
+function schedSlotMatchKey(territory, date, time) {
+  return [String(territory || '').trim().toLowerCase(), String(date || '').slice(0,10), schedNormalizeTime(time)].join('|');
+}
+
+function schedFetchBookingRows(slotIds) {
+  if (!slotIds.length) return Promise.resolve([]);
+  var chunks = [];
+  for (var i = 0; i < slotIds.length; i += 150) chunks.push(slotIds.slice(i, i + 150));
+  return Promise.all(chunks.map(function(chunk) {
+    return supabaseClient.from('schedule_bookings').select('*').in('schedule_slot_id', chunk).then(function(res) {
+      if (res.error) throw res.error;
+      return res.data || [];
+    });
+  })).then(function(results) {
+    return results.reduce(function(all, rows) { return all.concat(rows); }, []);
+  }).catch(function(err) {
+    console.warn('Could not reconcile schedule bookings; using slot counts and scheduled sales.', err);
+    return [];
+  });
+}
+
+function schedFetchScheduledSales(territory, startDate, endDate) {
+  if (!territory || !startDate || !endDate) return Promise.resolve([]);
+  return supabaseClient.from('sales_orders').select('*')
+    .eq('territory', territory)
+    .gte('install_date', startDate)
+    .lte('install_date', endDate)
+    .then(function(res) {
+      if (res.error) throw res.error;
+      return res.data || [];
+    })
+    .catch(function(err) {
+      console.warn('Could not reconcile scheduled sales; using booking and slot counts.', err);
+      return [];
+    });
+}
+
+function schedBuildBookedMap(slots, bookings, sales) {
+  var slotById = {};
+  var slotsByMatch = {};
+  (slots || []).forEach(function(slot) {
+    var id = String(slot.id || '').trim();
+    if (id) slotById[id] = slot;
+    var key = schedSlotMatchKey(slot.territory, slot.slot_date, slot.time_label);
+    if (!slotsByMatch[key]) slotsByMatch[key] = [];
+    slotsByMatch[key].push(slot);
+  });
+
+  var bookingCount = {};
+  var bookingKeys = {};
+  (bookings || []).filter(schedBookingIsActive).forEach(function(booking) {
+    var slotId = String(booking.schedule_slot_id || booking.slot_id || '').trim();
+    if (!slotId || !slotById[slotId]) return;
+    bookingCount[slotId] = Number(bookingCount[slotId] || 0) + 1;
+    if (!bookingKeys[slotId]) bookingKeys[slotId] = {};
+    schedIdentityKeys(booking).forEach(function(key) { bookingKeys[slotId][key] = true; });
+  });
+
+  var saleCount = {};
+  var unmatchedSaleCount = {};
+  var seenSales = {};
+  (sales || []).filter(schedSaleIsActive).forEach(function(sale) {
+    var date = String(sale.legacy_new_install_date || sale.install_date || sale.preferred_install_date || sale.appointment_date || '').slice(0,10);
+    var time = sale.legacy_new_install_time || sale.install_time || sale.install_slot || sale.preferred_install_time || sale.appointment_time || '';
+    var territory = sale.territory || '';
+    var candidates = slotsByMatch[schedSlotMatchKey(territory, date, time)] || [];
+    if (!candidates.length) return;
+    var slotId = String(candidates[0].id || '').trim();
+    if (!seenSales[slotId]) seenSales[slotId] = {};
+    var primary = schedPrimaryIdentity(sale);
+    if (seenSales[slotId][primary]) return;
+    seenSales[slotId][primary] = true;
+    saleCount[slotId] = Number(saleCount[slotId] || 0) + 1;
+    var keys = schedIdentityKeys(sale);
+    var matched = keys.some(function(key) { return bookingKeys[slotId] && bookingKeys[slotId][key]; });
+    if (!matched) unmatchedSaleCount[slotId] = Number(unmatchedSaleCount[slotId] || 0) + 1;
+  });
+
+  var result = {};
+  (slots || []).forEach(function(slot) {
+    var slotId = String(slot.id || '').trim();
+    var stored = Number(slot.booked_count || 0);
+    var counted = Number(bookingCount[slotId] || 0);
+    var scheduled = Number(saleCount[slotId] || 0);
+    var unmatched = Number(unmatchedSaleCount[slotId] || 0);
+    result[slotId] = Math.max(stored, counted + unmatched, scheduled);
+  });
+  return result;
+}
+
 function schedFetch(callback) {
   if (!supabaseWarn()) {
     callback(false);
@@ -3272,6 +3391,19 @@ function schedFetch(callback) {
 
   fetchScheduleSlotsFromSupabase(scheduleTerritory)
     .then(function(rows) {
+      var slotIds = rows.map(function(row) { return row.id; }).filter(Boolean);
+      var dates = rows.map(function(row) { return String(row.slot_date || '').slice(0,10); }).filter(Boolean).sort();
+      var startDate = dates.length ? dates[0] : '';
+      var endDate = dates.length ? dates[dates.length - 1] : '';
+      return Promise.all([
+        Promise.resolve(rows),
+        schedFetchBookingRows(slotIds),
+        schedFetchScheduledSales(scheduleTerritory, startDate, endDate)
+      ]);
+    })
+    .then(function(results) {
+      var rows = results[0] || [];
+      var bookedMap = schedBuildBookedMap(rows, results[1] || [], results[2] || []);
       var data = {};
       rows.forEach(function(row) {
         var date = (row.slot_date || '').toString().trim();
@@ -3279,10 +3411,11 @@ function schedFetch(callback) {
         if (!date || !time) return;
 
         if (!data[date]) data[date] = {};
+        var booked = Number(bookedMap[String(row.id || '').trim()] || 0);
         data[date][time] = {
           cap: Number(row.capacity || 0),
-          booked: Number(row.booked_count || 0),
-          avail: Math.max(0, Number(row.capacity || 0) - Number(row.booked_count || 0)),
+          booked: booked,
+          avail: Math.max(0, Number(row.capacity || 0) - booked),
           slotId: row.id,
           territory: row.territory || scheduleTerritory
         };
@@ -3755,7 +3888,10 @@ async function submitSale(pkgLabel) {
 
   if (selSlot) {
     var fullAddress = addr.address + (addr.city ? ', ' + addr.city : '') + (addr.state ? ', ' + addr.state : '');
-    schedBookSlot(selSlot.date, selSlot.time, first + ' ' + last, fullAddress);
+    var scheduleSaved = await schedBookSlot(selSlot.date, selSlot.time, first + ' ' + last, fullAddress);
+    if (!scheduleSaved) {
+      console.warn('Sale saved, but no matching schedule slot was available to book.', selSlot);
+    }
   }
 
   addr.sale   = { firstName: first, lastName: last, phone: phone, email: email, notes: notes };
