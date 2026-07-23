@@ -167,6 +167,45 @@
     .insight-main { margin-top: 10px; font-size: 18px; line-height: 1.25; font-weight: 900; }
     .insight-sub { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 
+    .schedule-panel { margin-bottom: 18px; }
+    .schedule-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .schedule-toolbar select { min-width: 150px; }
+    .schedule-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .schedule-kpi { background: rgba(2,6,23,.45); border: 1px solid rgba(148,163,184,.14); border-radius: 16px; padding: 13px; }
+    .schedule-kpi-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; font-weight: 900; }
+    .schedule-kpi-value { margin-top: 8px; font-size: 24px; font-weight: 900; line-height: 1.15; }
+    .schedule-kpi-sub { color: var(--muted); margin-top: 6px; font-size: 11px; line-height: 1.35; }
+    .schedule-scroll { overflow-x: auto; border: 1px solid rgba(148,163,184,.12); border-radius: 15px; }
+    .schedule-grid { display: grid; min-width: max-content; background: rgba(2,6,23,.32); }
+    .schedule-grid-cell { min-width: 145px; padding: 11px; border-right: 1px solid rgba(148,163,184,.10); border-bottom: 1px solid rgba(148,163,184,.10); }
+    .schedule-grid-cell:last-child { border-right: 0; }
+    .schedule-header { position: sticky; top: 0; z-index: 3; background: #0f172a; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 900; }
+    .schedule-territory { position: sticky; left: 0; z-index: 2; min-width: 205px; max-width: 205px; background: #0f172a; }
+    .schedule-header.schedule-territory { z-index: 4; }
+    .schedule-territory-name { color: #f8fafc; font-weight: 900; line-height: 1.3; }
+    .schedule-territory-sub { color: var(--muted); font-size: 11px; margin-top: 6px; line-height: 1.35; }
+    .schedule-day { background: rgba(15,23,42,.44); vertical-align: top; }
+    .schedule-day.open { background: rgba(34,197,94,.055); }
+    .schedule-day.limited { background: rgba(245,158,11,.065); }
+    .schedule-day.full, .schedule-day.overbooked { background: rgba(239,68,68,.06); }
+    .schedule-day.closed { background: rgba(71,85,105,.10); color: var(--muted); }
+    .schedule-day-total { font-size: 14px; font-weight: 900; margin-bottom: 8px; }
+    .schedule-day-meta { color: var(--muted); font-size: 10px; margin-bottom: 8px; line-height: 1.3; }
+    .schedule-slot-list { display: grid; gap: 6px; }
+    .schedule-slot { display: flex; justify-content: space-between; gap: 8px; padding: 6px 7px; border-radius: 9px; border: 1px solid rgba(148,163,184,.14); background: rgba(2,6,23,.38); font-size: 10px; line-height: 1.25; }
+    .schedule-slot strong { color: #f8fafc; white-space: nowrap; }
+    .schedule-slot.open { border-color: rgba(34,197,94,.30); }
+    .schedule-slot.limited { border-color: rgba(245,158,11,.34); }
+    .schedule-slot.full, .schedule-slot.overbooked { border-color: rgba(239,68,68,.34); }
+    .schedule-empty { color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .schedule-legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 11px; margin-top: 11px; }
+    .schedule-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .schedule-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+    .schedule-dot.open { background: var(--good); }
+    .schedule-dot.limited { background: var(--warn); }
+    .schedule-dot.full { background: var(--bad); }
+    .schedule-dot.closed { background: #64748b; }
+
     .route-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(350px, .65fr); gap: 18px; align-items: start; }
     #route-map { height: 560px; border-radius: 18px; border: 1px solid var(--border); overflow: hidden; background: #020617; }
     .route-controls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -192,12 +231,15 @@
       .grid-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .grid-2, .charts-grid, .route-grid, .insight-grid { grid-template-columns: 1fr; }
       .trend-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .schedule-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .route-stats, .route-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 700px) {
       body { padding: 12px; }
-      .controls, .grid-kpis, .trend-kpis { grid-template-columns: 1fr; }
+      .controls, .grid-kpis, .trend-kpis, .schedule-kpis { grid-template-columns: 1fr; }
       .kpi-value { font-size: 27px; }
+      .schedule-territory { min-width: 175px; max-width: 175px; }
+      .schedule-grid-cell { min-width: 132px; }
     }
   </style>
 </head>
@@ -222,7 +264,7 @@
         <div>
           <div class="eyebrow">Zito FieldOS</div>
           <h1 id="dashboard-title">Sales Team Dashboard</h1>
-          <p id="dashboard-subtitle" class="sub">Sales performance view for sales, install status, recent activity, charts, route replay, and rep performance.</p>
+          <p id="dashboard-subtitle" class="sub">Sales performance view for sales, upcoming install availability, recent activity, charts, route replay, and rep performance.</p>
         </div>
         <div class="auth-top-right">
           <div id="team-pill" class="pill">Team loading</div>
@@ -232,7 +274,7 @@
       </div>
 
       <div id="dashboard-notice" class="notice">
-        Use the filters below to review sales, activity, rep performance, charts, and route replay.
+        Use the filters below to review sales, schedule availability, activity, rep performance, charts, and route replay.
       </div>
 
       <div class="panel controls">
@@ -281,6 +323,35 @@
           <div class="panel"><div class="kpi-label">Needs Rescheduled</div><div id="kpi-rescheduled" class="kpi-value">0</div><div class="kpi-sub">Install follow-up required</div></div>
           <div class="panel"><div class="kpi-label">Invoiced</div><div id="kpi-invoiced" class="kpi-value">0</div><div class="kpi-sub">Already invoiced</div></div>
           <div class="panel"><div class="kpi-label">Close Rate</div><div id="kpi-close-rate" class="kpi-value">0.0%</div><div class="kpi-sub">Sales / worked doors</div></div>
+        </div>
+
+        <div class="panel schedule-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Install Schedule Availability</h2>
+              <div class="panel-sub">Read-only upcoming capacity by territory. This view follows the selected team and territory, but intentionally ignores sales date, rep, status, and search filters.</div>
+            </div>
+            <div class="schedule-toolbar">
+              <select id="schedule-horizon" aria-label="Schedule range">
+                <option value="7" selected>Next 7 Days</option>
+                <option value="14">Next 14 Days</option>
+              </select>
+              <button id="schedule-refresh-btn" class="small-btn" type="button">Refresh Schedule</button>
+            </div>
+          </div>
+          <div class="schedule-kpis">
+            <div class="schedule-kpi"><div class="schedule-kpi-label">Openings Available</div><div id="schedule-kpi-open" class="schedule-kpi-value">0</div><div class="schedule-kpi-sub">Remaining appointment capacity</div></div>
+            <div class="schedule-kpi"><div class="schedule-kpi-label">Booked Installs</div><div id="schedule-kpi-booked" class="schedule-kpi-value">0</div><div class="schedule-kpi-sub">Active bookings in this window</div></div>
+            <div class="schedule-kpi"><div class="schedule-kpi-label">Utilization</div><div id="schedule-kpi-utilization" class="schedule-kpi-value">0.0%</div><div class="schedule-kpi-sub">Booked capacity percentage</div></div>
+            <div class="schedule-kpi"><div class="schedule-kpi-label">Next Available</div><div id="schedule-kpi-next" class="schedule-kpi-value">—</div><div id="schedule-kpi-next-sub" class="schedule-kpi-sub">No opening found</div></div>
+          </div>
+          <div id="schedule-calendar" class="schedule-scroll"><div class="schedule-empty" style="padding:16px;">Schedule data is loading.</div></div>
+          <div class="schedule-legend">
+            <span><i class="schedule-dot open"></i>Open</span>
+            <span><i class="schedule-dot limited"></i>One opening left</span>
+            <span><i class="schedule-dot full"></i>Full or overbooked</span>
+            <span><i class="schedule-dot closed"></i>No schedule loaded</span>
+          </div>
         </div>
 
         <div class="grid-2">
@@ -563,6 +634,14 @@
     repBody: document.getElementById('rep-body'),
     statusSummaryList: document.getElementById('status-summary-list'),
     territorySummaryList: document.getElementById('territory-summary-list'),
+    scheduleHorizon: document.getElementById('schedule-horizon'),
+    scheduleRefresh: document.getElementById('schedule-refresh-btn'),
+    scheduleCalendar: document.getElementById('schedule-calendar'),
+    scheduleOpen: document.getElementById('schedule-kpi-open'),
+    scheduleBooked: document.getElementById('schedule-kpi-booked'),
+    scheduleUtilization: document.getElementById('schedule-kpi-utilization'),
+    scheduleNext: document.getElementById('schedule-kpi-next'),
+    scheduleNextSub: document.getElementById('schedule-kpi-next-sub'),
     exportSales: document.getElementById('export-sales-btn'),
     exportActivity: document.getElementById('export-activity-btn'),
     exportReps: document.getElementById('export-reps-btn'),
@@ -589,10 +668,11 @@
   };
 
   let dashboardAccess = { resolved: false, email: '', isCompanyAdmin: false, allowedTeams: [] };
-  let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [] };
+  let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
   let renderedState = { sales: [], activity: [], reps: [] };
   let refreshTimer = null;
   let loading = false;
+  let loadedTeamScope = null;
   let salesTrendChartInstance, statusMixChartInstance, territoryPerformanceChartInstance, repPerformanceChartInstance;
   let trendDailyChartInstance, trendWeeklyChartInstance, trendMonthlyChartInstance, trendOutcomeChartInstance;
   let routeMapInstance, routeLayer, routeLine, routeReplayMarker, routeReplayTimer;
@@ -692,6 +772,18 @@
   function todayIso() {
     const d = new Date();
     return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+  }
+
+  function addDaysIso(isoDate, days) {
+    const parts = String(isoDate || todayIso()).split('-').map(Number);
+    const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+    d.setDate(d.getDate() + Number(days || 0));
+    return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+  }
+
+  function scheduleDateWindow(days = 14) {
+    const start = todayIso();
+    return { start, end: addDaysIso(start, Math.max(1, Number(days || 14)) - 1) };
   }
 
   function defaultStartIso() {
@@ -983,8 +1075,8 @@
     els.teamPill.textContent = currentLabel;
     els.dashboardTitle.textContent = (selectedTeamFilter() === 'all' ? 'Company Sales Dashboard' : currentLabel + ' Dashboard');
     els.authTitle.textContent = 'Sales Dashboard Login';
-    els.dashboardSubtitle.textContent = 'Sales performance view for sales, install status, recent activity, charts, route replay, and rep performance.';
-    els.dashboardNotice.textContent = 'Use the filters below to review sales, activity, rep performance, charts, and route replay.';
+    els.dashboardSubtitle.textContent = 'Sales performance view for sales, upcoming install availability, recent activity, charts, route replay, and rep performance.';
+    els.dashboardNotice.textContent = 'Use the filters below to review sales, schedule availability, activity, rep performance, charts, and route replay.';
   }
 
   async function signIn() {
@@ -1005,7 +1097,7 @@
 
   async function signOut() {
     await supabaseClient.auth.signOut();
-    state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [] };
+    state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
     showAuth('Signed out.');
   }
 
@@ -1040,6 +1132,71 @@
     catch (err) {
       console.warn(table + ' optional load failed', err);
       return [];
+    }
+  }
+
+  async function fetchScheduleBookingsForSlots(slots) {
+    const ids = [...new Set((slots || []).map(slot => idKey(slot.id)).filter(Boolean))];
+    if (!ids.length) return { rows: [], loaded: true };
+    const rows = [];
+    try {
+      for (let i = 0; i < ids.length; i += 150) {
+        const chunk = ids.slice(i, i + 150);
+        const chunkRows = await fetchAllPages('schedule_bookings', {
+          order: { column: 'created_at', ascending: false },
+          filters: [{ type: 'in', column: 'schedule_slot_id', value: chunk }],
+          maxRecords: 5000
+        });
+        rows.push(...chunkRows);
+      }
+      return { rows, loaded: true };
+    } catch (err) {
+      console.warn('Future schedule bookings could not be loaded; using slot booked_count values.', err);
+      return { rows: [], loaded: false };
+    }
+  }
+
+  async function refreshScheduleOnly() {
+    if (loading) return;
+    const button = els.scheduleRefresh;
+    const originalText = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Refreshing...';
+    }
+    try {
+      const selectedTeam = selectedTeamFilter();
+      const scheduleWindow = scheduleDateWindow(14);
+      const slotFilters = [
+        { type: 'gte', column: 'slot_date', value: scheduleWindow.start },
+        { type: 'lte', column: 'slot_date', value: scheduleWindow.end }
+      ];
+      if (selectedTeam !== 'all') slotFilters.unshift({ type: 'eq', column: 'team_slug', value: selectedTeam });
+
+      const slots = await fetchAllPages('schedule_slots', {
+        order: { column: 'slot_date', ascending: true },
+        filters: slotFilters,
+        maxRecords: 5000
+      });
+      const bookingResult = await fetchScheduleBookingsForSlots(slots);
+      const addressMap = buildAddressMap();
+      const slotMap = new Map(slots.map(slot => [idKey(slot.id), slot]));
+      state.schedule_slots = slots.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_bookings = bookingResult.rows.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_bookings_loaded = bookingResult.loaded;
+      populateFilters();
+      renderScheduleAvailability();
+      els.statusLine.textContent = teamLabel() + ' schedule refreshed at ' + new Date().toLocaleTimeString() + '.';
+      els.statusLine.classList.remove('error');
+    } catch (err) {
+      console.error(err);
+      els.statusLine.textContent = err.message || 'Could not refresh schedule availability.';
+      els.statusLine.classList.add('error');
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || 'Refresh Schedule';
+      }
     }
   }
 
@@ -1106,7 +1263,11 @@
         bookingFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
       }
 
-      const [addresses, reps, addressEvents, salesOrders, slots, bookings] = await Promise.all([
+      const scheduleWindow = scheduleDateWindow(14);
+      slotFilters.push({ type: 'gte', column: 'slot_date', value: scheduleWindow.start });
+      slotFilters.push({ type: 'lte', column: 'slot_date', value: scheduleWindow.end });
+
+      const [addresses, reps, addressEvents, salesOrders, slots, activityBookings] = await Promise.all([
         fetchOptional('addresses', { order: { column: 'address1', ascending: true }, filters: addressFilters, maxRecords: 20000 }),
         fetchOptional('reps', { order: { column: 'full_name', ascending: true }, filters: repFilters }),
         fetchOptional('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters, maxRecords: 10000 }),
@@ -1115,6 +1276,7 @@
         fetchOptional('schedule_bookings', { order: { column: 'created_at', ascending: false }, filters: bookingFilters, maxRecords: 5000 })
       ]);
 
+      const scheduleBookingResult = await fetchScheduleBookingsForSlots(slots);
       const addressMapAll = buildAddressMap(addresses);
       const slotMapAll = new Map(slots.map(s => [idKey(s.id), s]));
 
@@ -1124,8 +1286,11 @@
         address_events: addressEvents.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         sales_orders: salesOrders.filter(r => teamRow(r, addressMapAll, slotMapAll)),
         schedule_slots: slots.filter(r => teamRow(r, addressMapAll, slotMapAll)),
-        schedule_bookings: bookings.filter(r => teamRow(r, addressMapAll, slotMapAll))
+        schedule_bookings: scheduleBookingResult.rows.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        schedule_activity_bookings: activityBookings.filter(r => teamRow(r, addressMapAll, slotMapAll)),
+        schedule_bookings_loaded: scheduleBookingResult.loaded
       };
+      loadedTeamScope = selectedTeam;
 
       populateFilters();
       renderAll();
@@ -1153,7 +1318,7 @@
     const teamEvents = state.address_events.filter(r => teamRow(r, addressMap, slotMap));
     const teamSlots = state.schedule_slots.filter(r => teamRow(r, addressMap, slotMap));
     const teamReps = state.reps.filter(r => teamRow(r, addressMap, slotMap));
-    const teamBookings = state.schedule_bookings.filter(r => teamRow(r, addressMap, slotMap));
+    const teamBookings = state.schedule_activity_bookings.filter(r => teamRow(r, addressMap, slotMap));
 
     const territories = [...new Set([
       ...teamAddresses.map(r => r.territory),
@@ -1246,7 +1411,7 @@
         status: row.status || '—',
         note: firstNonEmpty(row.note, row.notes)
       }));
-    const bookings = state.schedule_bookings
+    const bookings = state.schedule_activity_bookings
       .filter(row => rowMatchesUi(row, addressMap, slotMap))
       .map(row => {
         const slot = slotMap.get(idKey(row.schedule_slot_id)) || slotMap.get(idKey(row.slot_id)) || {};
@@ -1305,6 +1470,169 @@
       .sort((a,b) => b.sales - a.sales || b.worked - a.worked || a.rep.localeCompare(b.rep));
   }
 
+  function scheduleSlotDate(row) {
+    return String(firstNonEmpty(row?.slot_date, row?.install_date, row?.appointment_date, row?.date)).slice(0, 10);
+  }
+
+  function scheduleSlotTime(row) {
+    return String(firstNonEmpty(row?.time_label, row?.slot_time, row?.install_time, row?.appointment_time, row?.time)).trim();
+  }
+
+  function scheduleCapacity(row) {
+    const value = firstNonEmpty(row?.capacity, row?.cap, row?.max_capacity, row?.slot_capacity, 0);
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, number) : 0;
+  }
+
+  function scheduleBookingIsActive(row) {
+    const status = String(firstNonEmpty(row?.status, row?.booking_status, row?.install_status)).toLowerCase().trim().replace(/\s+/g, '_');
+    return !['canceled','cancelled','void','voided','rejected','deleted'].includes(status);
+  }
+
+  function scheduleTimeSortValue(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 9999;
+    const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+    if (!match) return 9999;
+    let hour = Number(match[1]);
+    const minute = Number(match[2] || 0);
+    const meridiem = String(match[3] || '').toLowerCase();
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    return hour * 60 + minute;
+  }
+
+  function scheduleDateLabel(isoDate) {
+    const parts = String(isoDate || '').split('-').map(Number);
+    if (parts.length !== 3 || !parts[0]) return isoDate || '—';
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  function scheduleShortDateLabel(isoDate) {
+    const parts = String(isoDate || '').split('-').map(Number);
+    if (parts.length !== 3 || !parts[0]) return isoDate || '—';
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function scheduleDayClass(available, capacity, oversoldBy) {
+    if (oversoldBy > 0) return 'overbooked';
+    if (capacity <= 0) return 'closed';
+    if (available <= 0) return 'full';
+    if (available === 1) return 'limited';
+    return 'open';
+  }
+
+  function buildScheduleAvailability() {
+    const horizon = Math.max(7, Math.min(14, Number(els.scheduleHorizon?.value || 7)));
+    const dates = Array.from({ length: horizon }, (_, index) => addDaysIso(todayIso(), index));
+    const dateSet = new Set(dates);
+    const addressMap = buildAddressMap();
+    const slotMap = new Map((state.schedule_slots || []).map(slot => [idKey(slot.id), slot]));
+    const selectedTerritory = els.territory?.value || 'all';
+
+    const slots = (state.schedule_slots || [])
+      .filter(slot => teamRow(slot, addressMap, slotMap))
+      .filter(slot => selectedTerritory === 'all' || normalizeTerritory(getTerritory(slot, addressMap, slotMap)) === normalizeTerritory(selectedTerritory))
+      .filter(slot => dateSet.has(scheduleSlotDate(slot)));
+
+    const bookingCounts = new Map();
+    (state.schedule_bookings || [])
+      .filter(scheduleBookingIsActive)
+      .filter(booking => teamRow(booking, addressMap, slotMap))
+      .forEach(booking => {
+        const slotId = idKey(booking.schedule_slot_id) || idKey(booking.slot_id);
+        if (slotId) bookingCounts.set(slotId, (bookingCounts.get(slotId) || 0) + 1);
+      });
+
+    const territories = new Map();
+    const totals = { capacity: 0, booked: 0, available: 0, next: null };
+
+    slots.forEach(slot => {
+      const territory = getTerritory(slot, addressMap, slotMap) || slot.territory || 'Unknown Territory';
+      const territoryKey = normalizeTerritory(territory) || territory;
+      const date = scheduleSlotDate(slot);
+      const time = scheduleSlotTime(slot) || 'Time not set';
+      const capacity = scheduleCapacity(slot);
+      const counted = bookingCounts.get(idKey(slot.id)) || 0;
+      const stored = Number(firstNonEmpty(slot.booked_count, slot.booked, slot.used, 0)) || 0;
+      const booked = state.schedule_bookings_loaded ? counted : Math.max(counted, stored);
+      const available = Math.max(0, capacity - booked);
+      const oversoldBy = Math.max(0, booked - capacity);
+      const statusClass = scheduleDayClass(available, capacity, oversoldBy);
+
+      if (!territories.has(territoryKey)) territories.set(territoryKey, { territory, days: new Map() });
+      const territoryRow = territories.get(territoryKey);
+      if (!territoryRow.days.has(date)) territoryRow.days.set(date, { capacity: 0, booked: 0, available: 0, oversoldBy: 0, slots: [] });
+      const day = territoryRow.days.get(date);
+      day.capacity += capacity;
+      day.booked += booked;
+      day.available += available;
+      day.oversoldBy += oversoldBy;
+      day.slots.push({ time, capacity, booked, available, oversoldBy, statusClass });
+
+      totals.capacity += capacity;
+      totals.booked += booked;
+      totals.available += available;
+      if (available > 0) {
+        const sortValue = date + '|' + String(scheduleTimeSortValue(time)).padStart(4, '0');
+        if (!totals.next || sortValue < totals.next.sortValue) totals.next = { sortValue, date, time, territory, available };
+      }
+    });
+
+    territories.forEach(row => row.days.forEach(day => day.slots.sort((a, b) => scheduleTimeSortValue(a.time) - scheduleTimeSortValue(b.time))));
+    return { dates, rows: Array.from(territories.values()).sort((a, b) => a.territory.localeCompare(b.territory)), totals };
+  }
+
+  function renderScheduleAvailability() {
+    if (!els.scheduleCalendar) return;
+    const data = buildScheduleAvailability();
+    const utilization = data.totals.capacity ? data.totals.booked / data.totals.capacity : 0;
+    setText('schedule-kpi-open', data.totals.available);
+    setText('schedule-kpi-booked', data.totals.booked);
+    setText('schedule-kpi-utilization', (utilization * 100).toFixed(1) + '%');
+    setText('schedule-kpi-next', data.totals.next ? scheduleShortDateLabel(data.totals.next.date) : '—');
+    setText('schedule-kpi-next-sub', data.totals.next
+      ? data.totals.next.time + ' • ' + data.totals.next.territory + ' • ' + data.totals.next.available + ' open'
+      : 'No opening found in this window');
+
+    if (!data.rows.length) {
+      els.scheduleCalendar.innerHTML = '<div class="schedule-empty" style="padding:16px;">No upcoming schedule slots were found for ' + escapeHtml(teamLabel()) + (els.territory?.value && els.territory.value !== 'all' ? ' in ' + escapeHtml(els.territory.value) : '') + '. Confirm future capacity is loaded in Setup.</div>';
+      return;
+    }
+
+    const columnTemplate = '205px repeat(' + data.dates.length + ', 145px)';
+    const header = '<div class="schedule-grid-cell schedule-header schedule-territory">Territory</div>' + data.dates.map(date => {
+      const parts = String(date).split('-').map(Number);
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dateText = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return '<div class="schedule-grid-cell schedule-header"><div>' + escapeHtml(weekday) + '</div><div style="color:#f8fafc;margin-top:4px;">' + escapeHtml(dateText) + '</div></div>';
+    }).join('');
+
+    const body = data.rows.map(row => {
+      const rowCapacity = Array.from(row.days.values()).reduce((sum, day) => sum + day.capacity, 0);
+      const rowBooked = Array.from(row.days.values()).reduce((sum, day) => sum + day.booked, 0);
+      const rowAvailable = Array.from(row.days.values()).reduce((sum, day) => sum + day.available, 0);
+      const territoryCell = '<div class="schedule-grid-cell schedule-territory"><div class="schedule-territory-name">' + escapeHtml(row.territory) + '</div><div class="schedule-territory-sub">' + rowAvailable + ' open • ' + rowBooked + ' booked / ' + rowCapacity + ' capacity</div></div>';
+      const dayCells = data.dates.map(date => {
+        const day = row.days.get(date);
+        if (!day) return '<div class="schedule-grid-cell schedule-day closed"><div class="schedule-empty">No schedule</div></div>';
+        const dayClass = scheduleDayClass(day.available, day.capacity, day.oversoldBy);
+        const totalLabel = day.oversoldBy > 0 ? 'Overbooked by ' + day.oversoldBy : day.available > 0 ? day.available + ' open' : day.capacity > 0 ? 'Full' : 'No capacity';
+        const slotHtml = day.slots.map(slot => {
+          const slotLabel = slot.oversoldBy > 0 ? 'Over +' + slot.oversoldBy : slot.available + '/' + slot.capacity + ' open';
+          return '<div class="schedule-slot ' + slot.statusClass + '"><span>' + escapeHtml(slot.time) + '</span><strong>' + escapeHtml(slotLabel) + '</strong></div>';
+        }).join('');
+        return '<div class="schedule-grid-cell schedule-day ' + dayClass + '"><div class="schedule-day-total">' + escapeHtml(totalLabel) + '</div><div class="schedule-day-meta">' + day.booked + ' booked / ' + day.capacity + ' capacity</div><div class="schedule-slot-list">' + slotHtml + '</div></div>';
+      }).join('');
+      return territoryCell + dayCells;
+    }).join('');
+
+    els.scheduleCalendar.innerHTML = '<div class="schedule-grid" style="grid-template-columns:' + columnTemplate + ';">' + header + body + '</div>';
+  }
+
   function renderAll() {
     if (els.teamPill) els.teamPill.textContent = teamLabel();
     if (els.dashboardTitle) els.dashboardTitle.textContent = (selectedTeamFilter() === 'all' ? 'Company Sales Dashboard' : teamLabel() + ' Dashboard');
@@ -1327,6 +1655,7 @@
     setText('kpi-invoiced', invoiced);
     setText('kpi-close-rate', (close * 100).toFixed(1) + '%');
 
+    renderScheduleAvailability();
     renderStatusSummary();
     renderTerritorySummary();
     renderSalesTable();
@@ -1993,8 +2322,20 @@
   els.loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
   els.logoutBtn.addEventListener('click', signOut);
   els.refresh.addEventListener('click', loadData);
-  if (els.team) els.team.addEventListener('change', () => { if (els.territory) els.territory.value = 'all'; if (els.rep) els.rep.value = 'all'; populateFilters(); renderAll(); });
+  if (els.team) els.team.addEventListener('change', () => {
+    if (els.territory) els.territory.value = 'all';
+    if (els.rep) els.rep.value = 'all';
+    const selectedTeam = selectedTeamFilter();
+    if (loadedTeamScope === 'all' || loadedTeamScope === selectedTeam) {
+      populateFilters();
+      renderAll();
+    } else {
+      loadData();
+    }
+  });
   [els.territory, els.rep, els.status].forEach(el => el.addEventListener('change', renderAll));
+  if (els.scheduleHorizon) els.scheduleHorizon.addEventListener('change', renderScheduleAvailability);
+  if (els.scheduleRefresh) els.scheduleRefresh.addEventListener('click', refreshScheduleOnly);
   [els.search].forEach(el => el.addEventListener('input', renderAll));
   [els.start, els.end].forEach(el => el.addEventListener('change', loadData));
   els.autoRefresh.addEventListener('change', () => {
