@@ -18,8 +18,8 @@ var TEAM_LINK_ALIASES = {
 // ──────────────────────────────────────────────────────────
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
-var APP_VERSION = '2.0.8';
-var BUILD_ID    = '2026.07.07-team-write-fix';
+var APP_VERSION = '2.1.0';
+var BUILD_ID    = '2026.07.24-transactional-sale';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -527,6 +527,58 @@ function enqueueOfflineTask(type, table, payload, label) {
   return true;
 }
 
+function enqueueOfflineRpcTask(type, rpcName, payload, label) {
+  var q = readOfflineQueue();
+  q.push({
+    id: offlineId(),
+    type: type,
+    rpc: rpcName,
+    payload: payload || {},
+    label: label || type,
+    created_at: new Date().toISOString(),
+    attempts: 0
+  });
+  writeOfflineQueue(q);
+  toast('📴 Sale saved offline — the complete transaction will sync automatically', 't-info');
+  return true;
+}
+
+function newClientSubmissionId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  // RFC-4122-style fallback for older mobile browsers.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0;
+    var v = c === 'x' ? r : ((r & 0x3) | 0x8);
+    return v.toString(16);
+  });
+}
+
+function isConnectivityError(err) {
+  var msg = String((err && (err.message || err.details || err.hint || err.code)) || err || '').toLowerCase();
+  return navigator.onLine === false ||
+    msg.indexOf('failed to fetch') >= 0 ||
+    msg.indexOf('network') >= 0 ||
+    msg.indexOf('load failed') >= 0 ||
+    msg.indexOf('timeout') >= 0 ||
+    msg.indexOf('connection') >= 0;
+}
+
+function callFieldosRpc(rpcName, payload) {
+  if (!hasSupabase()) return Promise.reject(new Error('App connection is not configured'));
+  return supabaseClient.rpc(rpcName, { p_payload: payload || {} }).then(function(res) {
+    if (res.error) throw res.error;
+    return res.data || {};
+  });
+}
+
+function executeOfflineTask(task) {
+  var payload = Object.assign({}, task.payload || {});
+  if (task.rpc) return callFieldosRpc(task.rpc, payload);
+  return insertSupabaseRow(task.table, payload);
+}
+
 function updateOfflineQueueUI() {
   var btn = document.getElementById('offline-sync-btn');
   if (!btn) return;
@@ -682,8 +734,7 @@ function processOfflineQueue(manual) {
 
   return q.reduce(function(chain, task) {
     return chain.then(function() {
-      var payload = Object.assign({}, task.payload || {});
-      return insertSupabaseRow(task.table, payload).then(function() {
+      return executeOfflineTask(task).then(function() {
         synced++;
       }).catch(function(err) {
         console.error('Offline sync failed for task', task, err);
@@ -3511,7 +3562,12 @@ function schedShiftWeek(dir) {
 }
 
 function schedPickSlot(date, time) {
-  selSlot = { date:date, time:time };
+  var selectedScheduleRow = schedData[date] && schedData[date][time] ? schedData[date][time] : null;
+  selSlot = {
+    date: date,
+    time: time,
+    slotId: selectedScheduleRow && selectedScheduleRow.slotId ? selectedScheduleRow.slotId : null
+  };
   document.getElementById('f-install-date').value = date;
   document.getElementById('f-install-time').value = time;
   calcPricing();
@@ -3833,75 +3889,145 @@ async function submitSale(pkgLabel) {
     return;
   }
 
+  if (!selSlot || !selSlot.slotId) {
+    toast('⚠ Select an available installation date and time before submitting the sale', 't-err');
+    return;
+  }
+
   var offer = getCurrentOffer(selPkg);
   if (!offer) {
     toast('⚠ No offer found for selected package', 't-err');
     return;
   }
-  var offerSnapshot = buildSelectedOfferSnapshot(selPkg, install);
-  var pricingSummary = pricingSummaryText(offerSnapshot);
 
-  applyLockedCoords_(addr);
+  var offerSnapshot = buildSelectedOfferSnapshot(selPkg, install);
   var outcomeFlags = getOutcomeFlags(true);
-  var payload = {
-    territory: (addr.territory || activeTerritory || ''),
-    sheetRow: addr.sheetRow || null,
-    lat: addr.lat != null ? addr.lat : '',
-    lng: addr.lng != null ? addr.lng : '',
-    salesperson: repName,
-    repPhone: repPhone,
-    repEmail: repEmail,
-    repWebsite: repWebsite,
-    address: addr.address, city: addr.city||'', state: addr.state||'', zip: addr.zip||'',
-    firstName: first, lastName: last, phone: phone, email: email,
-    package: pricingSummary,
-    packageName: offer.package_name || ((selPkg === 'gig') ? 'Gig Speed Internet' : 'Mega Speed Internet'),
-    internetSpeed: offer.speed_label || ((selPkg === 'gig') ? '1000/1000 Mbps' : '400/400 Mbps'),
-    promoPrice: offerSnapshot ? offerSnapshot.promo_display : (offer.promo_display || ''),
-    promoTerm: offerSnapshot ? offerSnapshot.promo_term_label : (offer.promo_term_label || ''),
-    standardRate: offerSnapshot ? offerSnapshot.standard_rate_label : (offer.standard_rate_label || ''),
-    promoEffectiveDate: offer.active_start || '',
-    offerId: offerSnapshot ? offerSnapshot.offer_id : (offer.id || null),
-    offerCode: offerSnapshot ? offerSnapshot.offer_code : (offer.offer_code || ''),
-    offerSnapshot: offerSnapshot,
-    installDate: selSlot ? selSlot.date : (install || ''),
-    installTime: selSlot ? selSlot.time : '',
+  var teamPayload = getActiveTeamPayload();
+  var submissionId = newClientSubmissionId();
+  var fullName = (first + ' ' + last).trim();
+
+  /*
+   * One payload now drives one PostgreSQL transaction. The database:
+   * 1. Locks and validates the schedule slot.
+   * 2. Creates the sales order.
+   * 3. Creates the schedule booking.
+   * 4. Creates the worked-door address event.
+   * 5. Updates the current address snapshot.
+   *
+   * client_submission_id makes an offline retry idempotent.
+   */
+  var transactionPayload = {
+    client_submission_id: submissionId,
+    address_id: addr.id,
+    schedule_slot_id: selSlot.slotId,
+    rep_name: repName || '',
+    team: teamPayload.team,
+    team_slug: teamPayload.team_slug,
+    territory: addr.territory || activeTerritory || '',
+    customer_name: fullName,
+    phone: phone,
+    email: email,
+    package_key: selPkg,
+    package_name: offer.package_name || ((selPkg === 'gig') ? 'Gig Speed Internet' : 'Mega Speed Internet'),
     notes: notes,
-    status: 'Sale — ' + (offer.package_name || pkgLabel),
-    standardizedOutcome: getStandardizedOutcomeLabel((selPkg === 'mega') ? 'mega' : 'gig'),
-    softInterestType: '',
-    decisionMakerSpokenTo: outcomeFlags.decisionMakerSpokenTo,
-    followUpNeeded: outcomeFlags.followUpNeeded,
-    saleMade: outcomeFlags.saleMade
+    address_status: (selPkg === 'mega') ? 'mega' : 'gig',
+    offer_id: offerSnapshot ? offerSnapshot.offer_id : (offer.id || null),
+    offer_snapshot: offerSnapshot || null,
+    monthly_total: offerSnapshot ? offerSnapshot.month_one_total : null,
+    first_bill_estimate: offerSnapshot ? offerSnapshot.first_bill_estimate : null,
+    promo_price: offerSnapshot ? offerSnapshot.promo_display : (offer.promo_display || ''),
+    promo_term: offerSnapshot ? offerSnapshot.promo_term_label : (offer.promo_term_label || ''),
+    standard_rate: offerSnapshot ? offerSnapshot.standard_rate_label : (offer.standard_rate_label || ''),
+    decision_maker_spoken_to: outcomeFlags.decisionMakerSpokenTo === 'Y',
+    follow_up_needed: outcomeFlags.followUpNeeded === 'Y',
+    sale_made: true
   };
 
-  addr.status = (selPkg === 'mega') ? 'mega' : 'gig';
-  addr.salesperson = repName;
-  addr.note   = (notes || '').trim();
-  addr.decisionMakerSpokenTo = outcomeFlags.decisionMakerSpokenTo;
-  addr.followUpNeeded = outcomeFlags.followUpNeeded;
-  addr.saleMade = outcomeFlags.saleMade;
+  var queuedOffline = false;
+  var transactionResult = null;
 
-  var saleSaved = await sendData(payload);
-  if (!saleSaved) return;
-  maybeWriteNewAddrToSheet(addr);
+  if (!hasSupabase() || navigator.onLine === false) {
+    enqueueOfflineRpcTask(
+      'fieldos_sale_transaction',
+      'fieldos_submit_sale',
+      transactionPayload,
+      'Sale: ' + fullName + ' — ' + transactionPayload.package_name
+    );
+    queuedOffline = true;
+  } else {
+    try {
+      transactionResult = await callFieldosRpc('fieldos_submit_sale', transactionPayload);
+      processOfflineQueue(false);
+    } catch (err) {
+      console.error('Transactional sale submission failed:', err);
 
-  if (selSlot) {
-    var fullAddress = addr.address + (addr.city ? ', ' + addr.city : '') + (addr.state ? ', ' + addr.state : '');
-    var scheduleSaved = await schedBookSlot(selSlot.date, selSlot.time, first + ' ' + last, fullAddress);
-    if (!scheduleSaved) {
-      console.warn('Sale saved, but no matching schedule slot was available to book.', selSlot);
+      if (isConnectivityError(err)) {
+        enqueueOfflineRpcTask(
+          'fieldos_sale_transaction',
+          'fieldos_submit_sale',
+          transactionPayload,
+          'Sale: ' + fullName + ' — ' + transactionPayload.package_name
+        );
+        queuedOffline = true;
+      } else {
+        var errorMessage = String((err && (err.message || err.details || err.hint)) || err || 'Sale could not be submitted.');
+        toast('⚠ ' + errorMessage, 't-err');
+
+        // Capacity or validation failures need a fresh schedule before retrying.
+        schedFetch(function(ok) {
+          var picker = document.getElementById('sched-picker');
+          if (ok && picker && !picker.classList.contains('hidden')) schedRenderWeek();
+        });
+        return;
+      }
     }
   }
 
-  addr.sale   = { firstName: first, lastName: last, phone: phone, email: email, notes: notes };
-  await updateAddressStatus(addr, addr.status, notes, outcomeFlags);
+  /*
+   * Update the local view only after the database transaction succeeds or
+   * after the exact same transaction has been safely queued for offline sync.
+   */
+  addr.status = (selPkg === 'mega') ? 'mega' : 'gig';
+  addr.salesperson = repName;
+  addr.note = notes;
+  addr.decisionMakerSpokenTo = outcomeFlags.decisionMakerSpokenTo;
+  addr.followUpNeeded = outcomeFlags.followUpNeeded;
+  addr.saleMade = 'Y';
+  addr.knockedAt = new Date().toISOString();
+  addr.sale = {
+    firstName: first,
+    lastName: last,
+    phone: phone,
+    email: email,
+    notes: notes,
+    salesOrderId: transactionResult && transactionResult.sales_order_id ? transactionResult.sales_order_id : null,
+    clientSubmissionId: submissionId,
+    pendingSync: queuedOffline
+  };
+
+  if (schedData[selSlot.date] && schedData[selSlot.date][selSlot.time]) {
+    var localSlot = schedData[selSlot.date][selSlot.time];
+    localSlot.booked = Number(localSlot.booked || 0) + 1;
+    localSlot.avail = Math.max(0, Number(localSlot.cap || 0) - Number(localSlot.booked || 0));
+  }
+
+  maybeWriteNewAddrToSheet(addr);
   if (addr.lat && addr.lng) placeMarker(addr);
   updateStats();
   buildList((document.getElementById('addr-search') && document.getElementById('addr-search').value) || null);
   refreshMapMarkers();
   sendHeartbeat();
-  toast('✅ ' + (offer.package_name || pkgLabel) + ' sold to ' + first + ' ' + last + '!', 't-ok');
+
+  if (!queuedOffline) {
+    schedFetch(function(ok) {
+      var picker = document.getElementById('sched-picker');
+      if (ok && picker && !picker.classList.contains('hidden')) schedRenderWeek();
+    });
+    toast('✅ ' + transactionPayload.package_name + ' sold to ' + fullName + ' — sale, booking, and door event saved together', 't-ok');
+  } else {
+    toast('📴 ' + transactionPayload.package_name + ' sale queued as one transaction for ' + fullName, 't-info');
+  }
+
   closeForm();
 }
 
