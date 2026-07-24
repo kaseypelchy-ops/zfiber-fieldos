@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.0';
-var BUILD_ID    = '2026.07.24-transactional-sale';
+var BUILD_ID    = '2026.07.24-schedule-realtime-v2';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -47,6 +47,11 @@ var supabaseClient = (window.supabase && typeof window.supabase.createClient ===
   : null;
 
 var scheduleRealtimeChannel = null;
+var scheduleRealtimeConnected = false;
+var scheduleRealtimePollTimer = null;
+var scheduleRealtimeDebounceTimer = null;
+var scheduleRefreshRunning = false;
+var scheduleRefreshPending = false;
 
 
 // ──────────────────────────────────────────────────────────
@@ -437,45 +442,128 @@ function pricingSummaryText(snapshot) {
 }
 
 function refreshScheduleRealtimeView() {
+  if (!supabaseClient) return;
+
+  if (scheduleRefreshRunning) {
+    scheduleRefreshPending = true;
+    return;
+  }
+
+  scheduleRefreshRunning = true;
   schedFetch(function(ok) {
+    scheduleRefreshRunning = false;
+
     var picker = document.getElementById('sched-picker');
-    if (ok && picker && !picker.classList.contains('hidden')) schedRenderWeek();
+    if (ok && picker && !picker.classList.contains('hidden')) {
+      schedRenderWeek();
+    }
+
+    if (scheduleRefreshPending) {
+      scheduleRefreshPending = false;
+      queueScheduleRealtimeRefresh(100);
+    }
   });
+}
+
+function queueScheduleRealtimeRefresh(delayMs) {
+  if (scheduleRealtimeDebounceTimer) {
+    clearTimeout(scheduleRealtimeDebounceTimer);
+  }
+
+  scheduleRealtimeDebounceTimer = setTimeout(function() {
+    scheduleRealtimeDebounceTimer = null;
+    refreshScheduleRealtimeView();
+  }, Number(delayMs || 250));
+}
+
+function startScheduleRealtimePoll(intervalMs) {
+  if (scheduleRealtimePollTimer) {
+    clearInterval(scheduleRealtimePollTimer);
+  }
+
+  /*
+   * Supabase Realtime is the primary path. This poll is an intentional
+   * reliability fallback for weak cellular service, suspended browser tabs,
+   * or projects where the publication was temporarily unavailable.
+   */
+  scheduleRealtimePollTimer = setInterval(function() {
+    if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+      queueScheduleRealtimeRefresh(0);
+    }
+  }, Number(intervalMs || 15000));
 }
 
 function startScheduleRealtime() {
   if (!supabaseClient) return;
 
-  if (scheduleRealtimeChannel) {
-    try { supabaseClient.removeChannel(scheduleRealtimeChannel); } catch (e) {}
-    scheduleRealtimeChannel = null;
-  }
+  stopScheduleRealtime();
 
   function rowMatchesActiveSchedule(payload) {
     var row = payload && (payload.new || payload.old);
     if (!row) return true;
+
     var scheduleTerritory = getScheduleTerritory ? getScheduleTerritory() : (activeTerritory || '');
     var rowTerritory = String(row.territory || '').trim();
+
+    /*
+     * Some DELETE payloads and older booking rows may contain only the
+     * primary key. In that case refresh rather than incorrectly ignoring it.
+     */
+    if (!rowTerritory) return true;
+
     return !(scheduleTerritory && rowTerritory && rowTerritory !== scheduleTerritory);
   }
 
   scheduleRealtimeChannel = supabaseClient
-    .channel('fieldos-schedule-realtime')
+    .channel('fieldos-schedule-realtime-' + Math.random().toString(36).slice(2))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, function(payload) {
-      if (rowMatchesActiveSchedule(payload)) refreshScheduleRealtimeView();
+      if (rowMatchesActiveSchedule(payload)) queueScheduleRealtimeRefresh(150);
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, function(payload) {
-      if (rowMatchesActiveSchedule(payload)) refreshScheduleRealtimeView();
+      if (rowMatchesActiveSchedule(payload)) queueScheduleRealtimeRefresh(150);
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, function(payload) {
-      if (rowMatchesActiveSchedule(payload)) refreshScheduleRealtimeView();
+      if (rowMatchesActiveSchedule(payload)) queueScheduleRealtimeRefresh(150);
     })
-    .subscribe();
+    .subscribe(function(status, err) {
+      scheduleRealtimeConnected = status === 'SUBSCRIBED';
+
+      if (status === 'SUBSCRIBED') {
+        console.info('FieldOS schedule realtime connected.');
+        queueScheduleRealtimeRefresh(0);
+        startScheduleRealtimePoll(30000);
+        return;
+      }
+
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.warn('FieldOS schedule realtime unavailable; using refresh fallback.', status, err || '');
+        startScheduleRealtimePoll(10000);
+      }
+    });
+
+  /*
+   * Start a fallback immediately. Once SUBSCRIBED, the callback above slows
+   * this to 30 seconds while realtime events provide immediate updates.
+   */
+  startScheduleRealtimePoll(10000);
 }
 
 function stopScheduleRealtime() {
-  if (!supabaseClient || !scheduleRealtimeChannel) return;
-  try { supabaseClient.removeChannel(scheduleRealtimeChannel); } catch (e) {}
+  scheduleRealtimeConnected = false;
+
+  if (scheduleRealtimeDebounceTimer) {
+    clearTimeout(scheduleRealtimeDebounceTimer);
+    scheduleRealtimeDebounceTimer = null;
+  }
+
+  if (scheduleRealtimePollTimer) {
+    clearInterval(scheduleRealtimePollTimer);
+    scheduleRealtimePollTimer = null;
+  }
+
+  if (supabaseClient && scheduleRealtimeChannel) {
+    try { supabaseClient.removeChannel(scheduleRealtimeChannel); } catch (e) {}
+  }
   scheduleRealtimeChannel = null;
 }
 
@@ -779,8 +867,27 @@ function processOfflineQueue(manual) {
   });
 }
 
-window.addEventListener('online', function(){ processOfflineQueue(false); });
-window.addEventListener('offline', updateOfflineQueueUI);
+window.addEventListener('online', function(){
+  processOfflineQueue(false);
+  startScheduleRealtime();
+  queueScheduleRealtimeRefresh(0);
+});
+window.addEventListener('offline', function(){
+  updateOfflineQueueUI();
+  scheduleRealtimeConnected = false;
+});
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+    if (!scheduleRealtimeConnected) startScheduleRealtime();
+    queueScheduleRealtimeRefresh(0);
+  }
+});
+
+window.addEventListener('focus', function() {
+  if (navigator.onLine !== false) queueScheduleRealtimeRefresh(0);
+});
+
 setTimeout(updateOfflineQueueUI, 0);
 
 function fetchRepProfileFromSupabase(name) {
