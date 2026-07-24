@@ -4,7 +4,7 @@
    reps get fresh files on their next open.
    ============================================================ */
 
-var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.3.3-20260723';
+var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.3.4-20260724-sales-review';
 
 /* Files that make up the app shell — cached on install so the
    app loads instantly even with no signal. */
@@ -61,12 +61,15 @@ self.addEventListener('fetch', function(e) {
   // Never intercept Nominatim (reverse geocode must always be fresh)
   if (url.includes('nominatim.openstreetmap.org')) return;
 
-  // ── index.html: network-first ─────────────────────────────
-  // Always try the network first so reps get fresh HTML after a deploy.
-  // Cache-first here means reps who never close the app tab can be stuck on
-  // stale markup for days even after a CACHE_VERSION bump activates.
-  var isIndex = url.endsWith('/') || url.endsWith('/index.html') || url.endsWith('index.html');
-  if (isIndex) {
+  // ── HTML pages and navigation: network-first ──────────────
+  // Dashboard pages change frequently. Always try the network first so a
+  // newly deployed sales-review/admin/setup/pricing page is not hidden by an
+  // older service-worker cache. Offline users still receive the cached copy.
+  var requestUrl = new URL(url);
+  var isHtmlPage = e.request.mode === 'navigate' ||
+                   requestUrl.pathname.endsWith('/') ||
+                   requestUrl.pathname.endsWith('.html');
+  if (isHtmlPage) {
     e.respondWith(
       fetch(e.request).then(function(response) {
         if (response && response.status === 200) {
@@ -75,8 +78,10 @@ self.addEventListener('fetch', function(e) {
         }
         return response;
       }).catch(function() {
-        // Offline — fall back to cached copy so the app still opens
-        return caches.match(e.request);
+        // Offline — fall back to the exact cached page, then the cached app shell.
+        return caches.match(e.request).then(function(cached) {
+          return cached || caches.match('./index.html');
+        });
       })
     );
     return;

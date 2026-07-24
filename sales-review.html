@@ -240,6 +240,9 @@
     }
 
     function normalize(value) { return String(value || '').trim().toLowerCase(); }
+    function idKey(value) { return value === null || value === undefined ? '' : String(value).trim(); }
+    function sameId(a, b) { const left = idKey(a); const right = idKey(b); return Boolean(left && right && left === right); }
+    function findSaleById(id) { return state.sales.find(r => sameId(r.id, id)) || null; }
     function normalizeTeam(value) {
       const raw = normalize(value);
       if (raw.includes('fiber')) return 'fiber';
@@ -289,7 +292,7 @@
     }
     function isInvoiced(r) { return Boolean(r.invoice_id || r.invoice_batch_id || r.invoiced_at); }
     function activeClawbackForSale(saleId) {
-      const matches = state.clawbacks.filter(cb => cb.sales_order_id === saleId && ['pending_credit', 'credited'].includes(normalize(cb.status)));
+      const matches = state.clawbacks.filter(cb => sameId(cb.sales_order_id, saleId) && ['pending_credit', 'credited'].includes(normalize(cb.status)));
       matches.sort((a, b) => {
         const rank = s => normalize(s.status) === 'pending_credit' ? 1 : 2;
         return rank(a) - rank(b) || String(b.created_at || '').localeCompare(String(a.created_at || ''));
@@ -309,7 +312,7 @@
       if (review === 'entered_in_zip' || r.entered_in_zip_at) return { key: 'entered_in_zip', label: 'Entered into ZIP', className: 'entered' };
       return { key: 'submitted', label: 'Submitted', className: 'submitted' };
     }
-    function addressFor(r) { return r.address_id ? state.addressesById.get(r.address_id) || null : null; }
+    function addressFor(r) { return r.address_id ? state.addressesById.get(idKey(r.address_id)) || null : null; }
     function displayAddress(r) {
       const a = addressFor(r);
       const line1 = r.address1 || a?.address1 || '—';
@@ -468,7 +471,7 @@
           .select('id,external_location_id,address1,city,state,postal_code,team_slug,territory')
           .in('id', chunk);
         if (error) { console.warn('Address lookup failed.', error); continue; }
-        (data || []).forEach(a => state.addressesById.set(a.id, a));
+        (data || []).forEach(a => state.addressesById.set(idKey(a.id), a));
       }
     }
 
@@ -576,27 +579,54 @@
     }
 
     async function updateSale(id, payload) {
-      const { error } = await supabaseClient.from('sales_orders').update(payload).eq('id', id);
+      const key = idKey(id);
+      if (!key) throw new Error('Sales action blocked because the sale ID is missing.');
+      const { data, error } = await supabaseClient
+        .from('sales_orders')
+        .update(payload)
+        .eq('id', id)
+        .select('id');
       if (error) throw error;
+      if (!Array.isArray(data) || !data.length) {
+        throw new Error('No sales record was updated. Your account may not have permission to update this sale, or the record no longer exists.');
+      }
+      return data[0];
     }
     async function markEntered(id) {
-      const sale = state.sales.find(r => r.id === id);
-      if (!sale) return;
-      await updateSale(id, { review_status: 'entered_in_zip', entered_in_zip_at: new Date().toISOString(), entered_in_zip_by: state.userEmail });
+      const sale = findSaleById(id);
+      if (!sale) throw new Error(`Could not find the selected sale (${idKey(id) || 'missing ID'}) in the current review data.`);
+      const now = new Date().toISOString();
+      await updateSale(sale.id, {
+        review_status: 'entered_in_zip',
+        reviewed_at: now,
+        reviewed_by: state.userEmail,
+        entered_in_zip_at: now,
+        entered_in_zip_by: state.userEmail
+      });
       await loadData();
     }
     async function markOutcome(id, outcome) {
-      const sale = state.sales.find(r => r.id === id);
-      if (!sale) return;
+      const sale = findSaleById(id);
+      if (!sale) throw new Error(`Could not find the selected sale (${idKey(id) || 'missing ID'}) in the current review data.`);
       const label = outcome === 'installed' ? 'installed' : outcome === 'canceled' ? 'canceled' : 'needs rescheduled';
       if (!confirm(`Mark ${sale.customer_name || 'this sale'} as ${label}?`)) return;
-      await updateSale(id, {
-        review_status: normalize(sale.review_status) === 'submitted' ? 'entered_in_zip' : sale.review_status,
+      const now = new Date().toISOString();
+      const payload = {
+        review_status: outcome === 'canceled'
+          ? 'canceled'
+          : (normalize(sale.review_status) === 'submitted' ? 'entered_in_zip' : (sale.review_status || 'entered_in_zip')),
+        reviewed_at: now,
+        reviewed_by: state.userEmail,
         install_outcome: outcome,
-        install_outcome_at: new Date().toISOString(),
+        install_outcome_at: now,
         install_outcome_by: state.userEmail,
         review_note: appendNote(sale.review_note, `Marked ${label} from fast Sales Review page by ${state.userEmail} on ${new Date().toLocaleString()}`)
-      });
+      };
+      if (!sale.entered_in_zip_at && outcome !== 'canceled') {
+        payload.entered_in_zip_at = now;
+        payload.entered_in_zip_by = state.userEmail;
+      }
+      await updateSale(sale.id, payload);
       await loadData();
     }
     function appendNote(existing, next) { return [existing, next].filter(Boolean).join(' | '); }
@@ -660,8 +690,8 @@
     }
 
     async function addClawback(id) {
-      const sale = state.sales.find(r => r.id === id);
-      if (!sale) return;
+      const sale = findSaleById(id);
+      if (!sale) throw new Error(`Could not find the selected sale (${idKey(id) || 'missing ID'}) in the current review data.`);
       if (!clawbackEligible(sale)) { alert('This sale is not eligible for a clawback. It must be installed, invoiced, within 90 days of install, and have no existing clawback.'); return; }
       const disconnectDate = prompt('Disconnect date YYYY-MM-DD:', todayYmd());
       if (!disconnectDate) return;
@@ -701,7 +731,7 @@
     }
     function clawbackExportRows(rows, creditInvoiceId, batchId) {
       return rows.map(cb => {
-        const sale = state.sales.find(r => r.id === cb.sales_order_id) || {};
+        const sale = findSaleById(cb.sales_order_id) || {};
         const a = sale.id ? displayAddress(sale) : { line1: '', cityState: '', external: cb.external_location_id || '' };
         return {
           line_type: 'Clawback Credit',
@@ -818,17 +848,28 @@
       if (!btn || btn.disabled) return;
       const id = btn.dataset.id;
       const action = btn.dataset.action;
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      els.statusLine.textContent = `${originalText} update in progress...`;
+      els.statusLine.className = 'status-line';
       (async () => {
         if (action === 'entered') await markEntered(id);
         if (action === 'installed') await markOutcome(id, 'installed');
         if (action === 'rescheduled') await markOutcome(id, 'needs_rescheduled');
         if (action === 'canceled') await markOutcome(id, 'canceled');
         if (action === 'single-invoice') {
-          const sale = state.sales.find(r => r.id === id);
-          if (sale) await invoiceRows([sale]);
+          const sale = findSaleById(id);
+          if (!sale) throw new Error(`Could not find the selected sale (${idKey(id) || 'missing ID'}) in the current review data.`);
+          await invoiceRows([sale]);
         }
         if (action === 'clawback') await addClawback(id);
-      })().catch(showError);
+      })().catch(showError).finally(() => {
+        if (btn.isConnected) {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
     });
 
     supabaseClient.auth.onAuthStateChange((_event, session) => {
