@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.0';
-var BUILD_ID    = '2026.07.24-schedule-realtime-v2';
+var BUILD_ID    = '2026.07.24-post-sale-refresh-v3';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -52,6 +52,7 @@ var scheduleRealtimePollTimer = null;
 var scheduleRealtimeDebounceTimer = null;
 var scheduleRefreshRunning = false;
 var scheduleRefreshPending = false;
+var scheduleConfirmedClaims = {}; // short-lived DB-confirmed slot counts after a completed sale
 
 
 // ──────────────────────────────────────────────────────────
@@ -441,6 +442,84 @@ function pricingSummaryText(snapshot) {
   return parts.filter(Boolean).join(' | ');
 }
 
+
+function rememberConfirmedScheduleClaim(slotId, bookedAfter, capacity) {
+  var key = String(slotId || '').trim();
+  var booked = Number(bookedAfter);
+  var cap = Number(capacity);
+  if (!key || !Number.isFinite(booked) || booked < 0) return;
+
+  scheduleConfirmedClaims[key] = {
+    booked: booked,
+    capacity: Number.isFinite(cap) && cap >= 0 ? cap : null,
+    expiresAt: Date.now() + (5 * 60 * 1000)
+  };
+}
+
+function getConfirmedScheduleClaim(slotId) {
+  var key = String(slotId || '').trim();
+  var claim = key ? scheduleConfirmedClaims[key] : null;
+  if (!claim) return null;
+  if (Number(claim.expiresAt || 0) <= Date.now()) {
+    delete scheduleConfirmedClaims[key];
+    return null;
+  }
+  return claim;
+}
+
+function schedFetchAsync() {
+  return new Promise(function(resolve) {
+    schedFetch(function(ok) { resolve(!!ok); });
+  });
+}
+
+function scheduleDelay(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, Number(ms || 0)); });
+}
+
+async function refreshScheduleAfterCompletedSale(submittedSlot, transactionResult) {
+  var slot = submittedSlot || {};
+  var slotId = String(slot.slotId || (transactionResult && transactionResult.schedule_slot_id) || '').trim();
+  var bookedAfter = Number(transactionResult && transactionResult.booked_after);
+  var capacity = Number(transactionResult && transactionResult.capacity);
+
+  if (slotId && Number.isFinite(bookedAfter)) {
+    rememberConfirmedScheduleClaim(slotId, bookedAfter, capacity);
+  }
+
+  // Immediately apply the database-confirmed count to the current in-memory picker.
+  if (slot.date && slot.time && schedData[slot.date] && schedData[slot.date][slot.time]) {
+    var localSlot = schedData[slot.date][slot.time];
+    if (Number.isFinite(capacity) && capacity >= 0) localSlot.cap = capacity;
+    if (Number.isFinite(bookedAfter) && bookedAfter >= 0) localSlot.booked = Math.max(Number(localSlot.booked || 0), bookedAfter);
+    localSlot.avail = Math.max(0, Number(localSlot.cap || 0) - Number(localSlot.booked || 0));
+  }
+
+  var picker = document.getElementById('sched-picker');
+  if (picker && !picker.classList.contains('hidden')) schedRenderWeek();
+
+  /*
+   * Refresh more than once. The RPC has already committed, but a phone can
+   * briefly receive an older cached/network response. The short-lived
+   * confirmed claim prevents a stale response from reopening the slot.
+   */
+  var delays = [0, 350, 1200];
+  for (var i = 0; i < delays.length; i++) {
+    if (delays[i]) await scheduleDelay(delays[i]);
+    await schedFetchAsync();
+
+    if (picker && !picker.classList.contains('hidden')) schedRenderWeek();
+
+    var refreshed = slot.date && slot.time && schedData[slot.date]
+      ? schedData[slot.date][slot.time]
+      : null;
+    if (refreshed && Number.isFinite(bookedAfter) && Number(refreshed.booked || 0) >= bookedAfter) break;
+  }
+
+  // Keep Realtime/polling aligned for other tabs and future picker openings.
+  queueScheduleRealtimeRefresh(1500);
+}
+
 function refreshScheduleRealtimeView() {
   if (!supabaseClient) return;
 
@@ -828,7 +907,14 @@ function processOfflineQueue(manual) {
 
   return q.reduce(function(chain, task) {
     return chain.then(function() {
-      return executeOfflineTask(task).then(function() {
+      return executeOfflineTask(task).then(function(result) {
+        if (task.rpc === 'fieldos_submit_sale' && result) {
+          rememberConfirmedScheduleClaim(
+            (task.payload || {}).schedule_slot_id || result.schedule_slot_id,
+            result.booked_after,
+            result.capacity
+          );
+        }
         synced++;
         if (
           task.rpc === 'fieldos_submit_sale' ||
@@ -3589,11 +3675,18 @@ function schedFetch(callback) {
         if (!date || !time) return;
 
         if (!data[date]) data[date] = {};
-        var booked = Number(bookedMap[String(row.id || '').trim()] || 0);
+        var slotId = String(row.id || '').trim();
+        var booked = Number(bookedMap[slotId] || 0);
+        var cap = Number(row.capacity || 0);
+        var confirmedClaim = getConfirmedScheduleClaim(slotId);
+        if (confirmedClaim) {
+          booked = Math.max(booked, Number(confirmedClaim.booked || 0));
+          if (Number.isFinite(Number(confirmedClaim.capacity))) cap = Number(confirmedClaim.capacity);
+        }
         data[date][time] = {
-          cap: Number(row.capacity || 0),
+          cap: cap,
           booked: booked,
-          avail: Math.max(0, Number(row.capacity || 0) - booked),
+          avail: Math.max(0, cap - booked),
           slotId: row.id,
           territory: row.territory || scheduleTerritory
         };
@@ -4032,6 +4125,7 @@ async function submitSale(pkgLabel) {
   var teamPayload = getActiveTeamPayload();
   var submissionId = newClientSubmissionId();
   var fullName = (first + ' ' + last).trim();
+  var submittedSlot = { date: selSlot.date, time: selSlot.time, slotId: selSlot.slotId };
 
   /*
    * One payload now drives one PostgreSQL transaction. The database:
@@ -4158,11 +4252,9 @@ async function submitSale(pkgLabel) {
   sendHeartbeat();
 
   if (!queuedOffline) {
-    schedFetch(function(ok) {
-      var picker = document.getElementById('sched-picker');
-      if (ok && picker && !picker.classList.contains('hidden')) schedRenderWeek();
-    });
-    toast('✅ ' + transactionPayload.package_name + ' sold to ' + fullName + ' — sale, booking, and door event saved together', 't-ok');
+    toast('✅ Sale saved — refreshing installation availability…', 't-info');
+    await refreshScheduleAfterCompletedSale(submittedSlot, transactionResult);
+    toast('✅ ' + transactionPayload.package_name + ' sold to ' + fullName + ' — selected install time refreshed', 't-ok');
   } else {
     toast('📴 ' + transactionPayload.package_name + ' sale queued as one transaction for ' + fullName, 't-info');
   }
