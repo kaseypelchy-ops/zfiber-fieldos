@@ -109,6 +109,12 @@
     }
     .notice.warn { border-color: rgba(245,158,11,.30); background: rgba(245,158,11,.10); color: #fde68a; }
     .notice.integrity-error { border-color: rgba(248,113,113,.45); background: rgba(127,29,29,.28); color: #fecaca; }
+    .integrity-notice-row { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+    .integrity-notice-message { flex:1 1 560px; }
+    .integrity-panel { border-color: rgba(248,113,113,.32); background: rgba(69,10,10,.18); margin-bottom:18px; }
+    .integrity-panel .table-wrap { max-height:520px; }
+    .integrity-id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size:11px; word-break:break-all; color:#cbd5e1; }
+    .integrity-note { max-width:360px; white-space:normal; line-height:1.4; }
     .grid-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
     .kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
     .kpi-value { font-size: 32px; font-weight: 900; margin-top: 10px; }
@@ -275,7 +281,7 @@
       </div>
 
       <div id="dashboard-notice" class="notice">
-        Use the filters below to review sales, schedule availability, activity, rep performance, charts, and route replay.
+        <div id="dashboard-notice-text">Use the filters below to review sales, schedule availability, activity, rep performance, charts, and route replay.</div>
       </div>
 
       <div class="panel controls">
@@ -622,6 +628,11 @@
     dashboardTitle: document.getElementById('dashboard-title'),
     dashboardSubtitle: document.getElementById('dashboard-subtitle'),
     dashboardNotice: document.getElementById('dashboard-notice'),
+    dashboardNoticeText: document.getElementById('dashboard-notice-text'),
+    viewMissingSalesBtn: document.getElementById('view-missing-sales-btn'),
+    missingSalesPanel: document.getElementById('missing-sales-panel'),
+    missingSalesSummary: document.getElementById('missing-sales-summary'),
+    missingSalesBody: document.getElementById('missing-sales-body'),
     statusLine: document.getElementById('status-line'),
     team: document.getElementById('team-filter'),
     territory: document.getElementById('territory-filter'),
@@ -1702,6 +1713,52 @@
       .filter(event => !saleEventHasMatchingOrder(event, addressMap, matchSets));
   }
 
+  function toggleMissingSalesPanel(forceOpen) {
+    if (!els.missingSalesPanel) return;
+    const shouldOpen = typeof forceOpen === 'boolean'
+      ? forceOpen
+      : els.missingSalesPanel.classList.contains('hidden');
+    els.missingSalesPanel.classList.toggle('hidden', !shouldOpen);
+    if (els.viewMissingSalesBtn) {
+      els.viewMissingSalesBtn.textContent = shouldOpen ? 'Hide Missing Sales' : 'View Missing Sales';
+    }
+    if (shouldOpen) els.missingSalesPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderMissingSalesDetails(records) {
+    if (!els.missingSalesBody || !els.missingSalesPanel) return;
+    const addressMap = buildAddressMap();
+    const rows = records
+      .slice()
+      .sort((a,b) => timeValue(b.created_at || b.knocked_at) - timeValue(a.created_at || a.knocked_at));
+
+    if (els.missingSalesSummary) {
+      els.missingSalesSummary.textContent = rows.length +
+        ' unmatched sale disposition(s) are shown for the current dashboard filters. Use the event ID when repairing a record.';
+    }
+
+    els.missingSalesBody.innerHTML = rows.map(row => {
+      const linked = getLinkedAddress(row, addressMap) || {};
+      return '<tr>' +
+        '<td>' + escapeHtml(formatDateTime(firstNonEmpty(row.created_at, row.knocked_at))) + '</td>' +
+        '<td>' + escapeHtml(getRepName(row) || '—') + '</td>' +
+        '<td>' + escapeHtml(firstNonEmpty(row.team_slug, row.team, linked.team_slug, linked.team) || '—') + '</td>' +
+        '<td>' + escapeHtml(firstNonEmpty(row.territory, linked.territory) || '—') + '</td>' +
+        '<td>' + escapeHtml(buildAddressLabel(row, addressMap)) + '</td>' +
+        '<td><span class="badge red">' + escapeHtml(firstNonEmpty(row.status, row.disposition, row.outcome) || 'sale') + '</span></td>' +
+        '<td class="integrity-note">' + escapeHtml(firstNonEmpty(row.note, row.notes) || '—') + '</td>' +
+        '<td class="integrity-id">' + escapeHtml(idKey(row.id) || '—') + '</td>' +
+        '<td class="integrity-id">' + escapeHtml(idKey(firstNonEmpty(row.address_id, linked.id)) || '—') + '</td>' +
+        '<td class="integrity-id">' + escapeHtml(idKey(row.client_submission_id) || '—') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    if (!rows.length) {
+      els.missingSalesBody.innerHTML = '<tr><td colspan="10">No unmatched sale dispositions were found for the current filters.</td></tr>';
+      els.missingSalesPanel.classList.add('hidden');
+    }
+  }
+
   function workedDoorRecords() {
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
@@ -2093,16 +2150,10 @@
     renderedState.activity = activityRecords();
     renderedState.reps = repRecords();
 
-    const unmatchedSaleEvents = unmatchedSaleEventRecords();
     if (els.dashboardNotice) {
-      els.dashboardNotice.classList.toggle('integrity-error', unmatchedSaleEvents.length > 0);
-      if (unmatchedSaleEvents.length > 0) {
-        els.dashboardNotice.textContent =
-          '⚠ Data integrity alert: ' + unmatchedSaleEvents.length +
-          ' sale disposition(s) do not have a matching sales_orders record. ' +
-          'Do not count these as completed sales until they are repaired.';
-      } else {
-        els.dashboardNotice.textContent =
+      els.dashboardNotice.classList.remove('integrity-error');
+      if (els.dashboardNoticeText) {
+        els.dashboardNoticeText.textContent =
           'Sales, worked doors, bookings, and install availability are synchronized for the current filters.';
       }
     }
