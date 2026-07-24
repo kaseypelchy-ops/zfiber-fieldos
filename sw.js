@@ -4,7 +4,7 @@
    reps get fresh files on their next open.
    ============================================================ */
 
-var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.4.3-20260724-post-sale-refresh-v3';
+var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.4.4-20260724-sale-integrity-v1';
 
 /* Files that make up the app shell — cached on install so the
    app loads instantly even with no signal. */
@@ -14,6 +14,7 @@ var APP_SHELL = [
   './style.css',
   './app.js',
   './manifest.json',
+  './version.json',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js',
@@ -48,6 +49,12 @@ self.addEventListener('activate', function(e) {
   );
 });
 
+
+/* Allow a page to request immediate activation after a deployment. */
+self.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 /* ── FETCH: serve from cache when possible ── */
 self.addEventListener('fetch', function(e) {
   var url = e.request.url;
@@ -61,11 +68,41 @@ self.addEventListener('fetch', function(e) {
   // Never intercept Nominatim (reverse geocode must always be fresh)
   if (url.includes('nominatim.openstreetmap.org')) return;
 
+  // ── Local application files: network-first ───────────────
+  // A stale app.js can use the retired direct-insert sale flow. Always
+  // prefer the deployed version for the application code and build marker,
+  // while retaining the cached version for true offline use.
+  var requestUrl = new URL(url);
+  var sameOrigin = requestUrl.origin === self.location.origin;
+  var localFile = requestUrl.pathname.split('/').pop();
+  var isLocalAppFile = sameOrigin && [
+    'app.js',
+    'style.css',
+    'version.json',
+    'manifest.json'
+  ].indexOf(localFile) >= 0;
+
+  if (isLocalAppFile) {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-store' }).then(function(response) {
+        if (response && response.status === 200) {
+          var clone = response.clone();
+          caches.open(CACHE_VERSION).then(function(cache) {
+            cache.put(e.request, clone);
+          });
+        }
+        return response;
+      }).catch(function() {
+        return caches.match(e.request, { ignoreSearch: true });
+      })
+    );
+    return;
+  }
+
   // ── HTML pages and navigation: network-first ──────────────
   // Dashboard pages change frequently. Always try the network first so a
   // newly deployed sales-review/admin/setup/pricing page is not hidden by an
   // older service-worker cache. Offline users still receive the cached copy.
-  var requestUrl = new URL(url);
   var isHtmlPage = e.request.mode === 'navigate' ||
                    requestUrl.pathname.endsWith('/') ||
                    requestUrl.pathname.endsWith('.html');

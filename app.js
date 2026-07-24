@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.0';
-var BUILD_ID    = '2026.07.24-post-sale-refresh-v3';
+var BUILD_ID    = '2026.07.24-sale-integrity-v1';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -53,6 +53,41 @@ var scheduleRealtimeDebounceTimer = null;
 var scheduleRefreshRunning = false;
 var scheduleRefreshPending = false;
 var scheduleConfirmedClaims = {}; // short-lived DB-confirmed slot counts after a completed sale
+
+var appUpdateCheckTimer = null;
+var appUpdateReloading = false;
+
+function checkForRequiredAppUpdate() {
+  if (navigator.onLine === false || appUpdateReloading) return Promise.resolve(false);
+
+  return fetch('./version.json?ts=' + Date.now(), { cache: 'no-store' })
+    .then(function(response) {
+      if (!response.ok) throw new Error('Version check failed');
+      return response.json();
+    })
+    .then(function(versionInfo) {
+      var currentBuild = String(BUILD_ID || '').trim();
+      var availableBuild = String((versionInfo && versionInfo.build) || '').trim();
+      if (!availableBuild || !currentBuild || availableBuild === currentBuild) return false;
+
+      appUpdateReloading = true;
+      toast('A required FieldOS update was found. Refreshing now…', 't-info');
+      setTimeout(function() {
+        window.location.reload();
+      }, 450);
+      return true;
+    })
+    .catch(function(err) {
+      console.warn('FieldOS build check could not complete.', err);
+      return false;
+    });
+}
+
+function startRequiredAppUpdateChecks() {
+  if (appUpdateCheckTimer) clearInterval(appUpdateCheckTimer);
+  appUpdateCheckTimer = setInterval(checkForRequiredAppUpdate, 60000);
+  setTimeout(checkForRequiredAppUpdate, 1500);
+}
 
 
 // ──────────────────────────────────────────────────────────
@@ -722,6 +757,180 @@ function newClientSubmissionId() {
   });
 }
 
+
+function normalizedQueueText(value) {
+  return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function normalizedQueuePhone(value) {
+  return String(value || '').replace(/[^0-9]/g, '');
+}
+
+function queueTaskTime(task) {
+  var value = Date.parse((task && task.created_at) || '');
+  return Number.isFinite(value) ? value : 0;
+}
+
+function legacyQueueTasksMatch(saleTask, otherTask) {
+  var sale = (saleTask && saleTask.payload) || {};
+  var other = (otherTask && otherTask.payload) || {};
+
+  if (!sale.address_id || !other.address_id ||
+      String(sale.address_id) !== String(other.address_id)) return false;
+
+  var saleRep = normalizedQueueText(sale.rep_name);
+  var otherRep = normalizedQueueText(other.rep_name);
+  if (saleRep && otherRep && saleRep !== otherRep) return false;
+
+  var salePhone = normalizedQueuePhone(sale.phone);
+  var otherPhone = normalizedQueuePhone(other.phone);
+  if (salePhone && otherPhone && salePhone !== otherPhone) return false;
+
+  var saleCustomer = normalizedQueueText(sale.customer_name);
+  var otherCustomer = normalizedQueueText(other.customer_name);
+  if (saleCustomer && otherCustomer && saleCustomer !== otherCustomer) return false;
+
+  var saleTime = queueTaskTime(saleTask);
+  var otherTime = queueTaskTime(otherTask);
+  if (saleTime && otherTime && Math.abs(saleTime - otherTime) > 30 * 60 * 1000) return false;
+
+  return true;
+}
+
+function inferLegacySalePackage(salePayload) {
+  var label = normalizedQueueText(
+    (salePayload && salePayload.package_name) + ' ' +
+    (salePayload && salePayload.promo_price) + ' ' +
+    (salePayload && salePayload.notes)
+  );
+
+  if (label.indexOf('gig') >= 0 || label.indexOf('1000') >= 0) {
+    return { key: 'gig', status: 'gig', name: (salePayload.package_name || 'Gig Speed Internet') };
+  }
+
+  if (label.indexOf('mega') >= 0 || label.indexOf('400') >= 0) {
+    return { key: 'mega', status: 'mega', name: (salePayload.package_name || 'Mega Speed Internet') };
+  }
+
+  return null;
+}
+
+/*
+ * Versions of FieldOS used before the transactional RPC queued three
+ * independent operations: sales_orders, schedule_bookings and address_events.
+ * Migration 02 intentionally blocks the first two direct inserts, so a stale
+ * client can leave a sale-looking address event without a sales order.
+ *
+ * Convert those legacy queue pairs into one idempotent recovery RPC before
+ * syncing. The recovery RPC links a recent unlinked sale event rather than
+ * creating another worked-door event.
+ */
+function upgradeLegacySaleQueue() {
+  var queue = readOfflineQueue();
+  if (!queue.length) return 0;
+
+  var consumed = {};
+  var replacements = {};
+  var upgraded = 0;
+
+  queue.forEach(function(saleTask, saleIndex) {
+    if (consumed[saleIndex]) return;
+    if (!saleTask || saleTask.rpc || saleTask.table !== 'sales_orders') return;
+
+    var salePayload = Object.assign({}, saleTask.payload || {});
+    var pkg = inferLegacySalePackage(salePayload);
+    if (!pkg || !salePayload.address_id) return;
+
+    var bookingIndex = -1;
+    var eventIndex = -1;
+
+    queue.forEach(function(candidate, candidateIndex) {
+      if (candidateIndex === saleIndex || consumed[candidateIndex] || !candidate || candidate.rpc) return;
+
+      if (bookingIndex < 0 &&
+          candidate.table === 'schedule_bookings' &&
+          legacyQueueTasksMatch(saleTask, candidate) &&
+          candidate.payload && candidate.payload.schedule_slot_id) {
+        bookingIndex = candidateIndex;
+      }
+
+      if (eventIndex < 0 &&
+          candidate.table === 'address_events' &&
+          legacyQueueTasksMatch(saleTask, candidate) &&
+          candidate.payload &&
+          (candidate.payload.sale_made === true ||
+           ['gig', 'mega'].indexOf(normalizedQueueText(candidate.payload.status)) >= 0)) {
+        eventIndex = candidateIndex;
+      }
+    });
+
+    if (bookingIndex < 0) return;
+
+    var bookingTask = queue[bookingIndex];
+    var bookingPayload = Object.assign({}, bookingTask.payload || {});
+    var eventTask = eventIndex >= 0 ? queue[eventIndex] : null;
+    var eventPayload = eventTask ? Object.assign({}, eventTask.payload || {}) : {};
+
+    var submissionId = newClientSubmissionId();
+    var recoveryPayload = {
+      client_submission_id: submissionId,
+      address_id: salePayload.address_id,
+      schedule_slot_id: bookingPayload.schedule_slot_id,
+      rep_name: salePayload.rep_name || bookingPayload.rep_name || '',
+      team: salePayload.team || bookingPayload.team || '',
+      team_slug: salePayload.team_slug || bookingPayload.team_slug || '',
+      territory: salePayload.territory || bookingPayload.territory || '',
+      customer_name: salePayload.customer_name || bookingPayload.customer_name || '',
+      phone: salePayload.phone || bookingPayload.phone || '',
+      email: salePayload.email || bookingPayload.email || '',
+      package_key: pkg.key,
+      package_name: pkg.name,
+      notes: salePayload.notes || bookingPayload.notes || eventPayload.note || '',
+      address_status: pkg.status,
+      offer_id: salePayload.offer_id || null,
+      offer_snapshot: salePayload.offer_snapshot || null,
+      monthly_total: salePayload.monthly_total == null ? null : salePayload.monthly_total,
+      first_bill_estimate: salePayload.first_bill_estimate == null ? null : salePayload.first_bill_estimate,
+      promo_price: salePayload.promo_price || '',
+      promo_term: salePayload.promo_term || '',
+      standard_rate: salePayload.standard_rate || '',
+      decision_maker_spoken_to: eventPayload.decision_maker_spoken_to !== false,
+      follow_up_needed: eventPayload.follow_up_needed === true,
+      sale_made: true,
+      legacy_event_created_at: (eventTask && eventTask.created_at) || saleTask.created_at || new Date().toISOString(),
+      legacy_source: 'fieldos_pre_transaction_queue'
+    };
+
+    replacements[saleIndex] = {
+      id: offlineId(),
+      type: 'fieldos_legacy_sale_recovery',
+      rpc: 'fieldos_recover_legacy_sale',
+      payload: recoveryPayload,
+      label: 'Recover sale: ' + recoveryPayload.customer_name + ' — ' + recoveryPayload.package_name,
+      created_at: saleTask.created_at || new Date().toISOString(),
+      attempts: 0,
+      upgraded_from_legacy_queue: true
+    };
+
+    consumed[saleIndex] = true;
+    consumed[bookingIndex] = true;
+    if (eventIndex >= 0) consumed[eventIndex] = true;
+    upgraded++;
+  });
+
+  if (!upgraded) return 0;
+
+  var nextQueue = [];
+  queue.forEach(function(task, index) {
+    if (replacements[index]) nextQueue.push(replacements[index]);
+    else if (!consumed[index]) nextQueue.push(task);
+  });
+
+  writeOfflineQueue(nextQueue);
+  console.info('Upgraded ' + upgraded + ' legacy sale queue item(s) to transactional recovery.');
+  return upgraded;
+}
+
 function isConnectivityError(err) {
   var msg = String((err && (err.message || err.details || err.hint || err.code)) || err || '').toLowerCase();
   return navigator.onLine === false ||
@@ -732,11 +941,49 @@ function isConnectivityError(err) {
     msg.indexOf('connection') >= 0;
 }
 
+function normalizeRpcResult(data) {
+  var value = data;
+
+  if (Array.isArray(value)) value = value.length ? value[0] : null;
+
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch (e) {}
+  }
+
+  return value && typeof value === 'object' ? value : {};
+}
+
+function requireCompleteSaleTransactionResult(rpcName, result) {
+  var saleRpc = rpcName === 'fieldos_submit_sale' ||
+                rpcName === 'fieldos_recover_legacy_sale';
+
+  if (!saleRpc) return result;
+
+  var missing = [];
+  if (result.ok !== true) missing.push('ok');
+  if (!result.sales_order_id) missing.push('sales_order_id');
+  if (!result.schedule_booking_id) missing.push('schedule_booking_id');
+  if (!result.address_event_id) missing.push('address_event_id');
+
+  if (missing.length) {
+    var err = new Error(
+      'FieldOS did not receive a complete sale confirmation (' +
+      missing.join(', ') +
+      '). The sale will remain queued and must not be entered again.'
+    );
+    err.code = 'FIELDOS_INCOMPLETE_SALE_CONFIRMATION';
+    err.transaction_result = result;
+    throw err;
+  }
+
+  return result;
+}
+
 function callFieldosRpc(rpcName, payload) {
   if (!hasSupabase()) return Promise.reject(new Error('App connection is not configured'));
   return supabaseClient.rpc(rpcName, { p_payload: payload || {} }).then(function(res) {
     if (res.error) throw res.error;
-    return res.data || {};
+    return requireCompleteSaleTransactionResult(rpcName, normalizeRpcResult(res.data));
   });
 }
 
@@ -874,9 +1121,13 @@ function insertSupabaseRow(table, payload) {
 }
 
 function processOfflineQueue(manual) {
+  var upgradedLegacySales = upgradeLegacySaleQueue();
   updateOfflineQueueUI();
   if (offlineSyncRunning) return Promise.resolve(false);
   var q = readOfflineQueue();
+  if (manual && upgradedLegacySales) {
+    toast('Recovered ' + upgradedLegacySales + ' older queued sale(s) into the safe transaction flow.', 't-info');
+  }
   if (!q.length) {
     if (manual) {
       // "Synced" describes the offline queue. Refresh the schedule too so
@@ -908,7 +1159,7 @@ function processOfflineQueue(manual) {
   return q.reduce(function(chain, task) {
     return chain.then(function() {
       return executeOfflineTask(task).then(function(result) {
-        if (task.rpc === 'fieldos_submit_sale' && result) {
+        if ((task.rpc === 'fieldos_submit_sale' || task.rpc === 'fieldos_recover_legacy_sale') && result) {
           rememberConfirmedScheduleClaim(
             (task.payload || {}).schedule_slot_id || result.schedule_slot_id,
             result.booked_after,
@@ -917,7 +1168,7 @@ function processOfflineQueue(manual) {
         }
         synced++;
         if (
-          task.rpc === 'fieldos_submit_sale' ||
+          (task.rpc === 'fieldos_submit_sale' || task.rpc === 'fieldos_recover_legacy_sale') ||
           task.table === 'schedule_bookings' ||
           task.table === 'schedule_slots' ||
           task.table === 'sales_orders'
@@ -957,6 +1208,7 @@ window.addEventListener('online', function(){
   processOfflineQueue(false);
   startScheduleRealtime();
   queueScheduleRealtimeRefresh(0);
+  checkForRequiredAppUpdate();
 });
 window.addEventListener('offline', function(){
   updateOfflineQueueUI();
@@ -967,14 +1219,19 @@ document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'visible' && navigator.onLine !== false) {
     if (!scheduleRealtimeConnected) startScheduleRealtime();
     queueScheduleRealtimeRefresh(0);
+    checkForRequiredAppUpdate();
   }
 });
 
 window.addEventListener('focus', function() {
-  if (navigator.onLine !== false) queueScheduleRealtimeRefresh(0);
+  if (navigator.onLine !== false) {
+    queueScheduleRealtimeRefresh(0);
+    checkForRequiredAppUpdate();
+  }
 });
 
 setTimeout(updateOfflineQueueUI, 0);
+startRequiredAppUpdateChecks();
 
 function fetchRepProfileFromSupabase(name) {
   if (!supabaseWarn()) return Promise.resolve(null);

@@ -394,12 +394,27 @@
 </script>
 
 <!-- App logic -->
-<script defer src="app.js?v=fieldos-post-sale-refresh-v3-20260724"></script>
+<script defer src="app.js?v=fieldos-sale-integrity-v1-20260724"></script>
 <!-- Service worker -->
 <script>
   if ('serviceWorker' in navigator) {
+    var fieldosReloadingForWorker = false;
+
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (fieldosReloadingForWorker) return;
+      fieldosReloadingForWorker = true;
+      window.location.reload();
+    });
+
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('sw.js').catch(function(){});
+      navigator.serviceWorker.register('sw.js?v=fieldos-sale-integrity-v1-20260724')
+        .then(function(registration) {
+          registration.update().catch(function(){});
+          setInterval(function() {
+            registration.update().catch(function(){});
+          }, 60000);
+        })
+        .catch(function(){});
     });
   }
 </script>

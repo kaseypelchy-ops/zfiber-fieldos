@@ -108,6 +108,7 @@
       margin-bottom: 18px;
     }
     .notice.warn { border-color: rgba(245,158,11,.30); background: rgba(245,158,11,.10); color: #fde68a; }
+    .notice.integrity-error { border-color: rgba(248,113,113,.45); background: rgba(127,29,29,.28); color: #fecaca; }
     .grid-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
     .kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
     .kpi-value { font-size: 32px; font-weight: 900; margin-top: 10px; }
@@ -1662,6 +1663,45 @@
     return 'sale';
   }
 
+  function buildSaleOrderMatchSets(addressMap, slotMap) {
+    const saleIds = new Set();
+    const exact = new Set();
+    const loose = new Set();
+
+    state.sales_orders
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .forEach(sale => {
+        if (sale.id) saleIds.add(idKey(sale.id));
+        const keys = saleWorkedMatchKeys(sale, addressMap);
+        if (keys.exact) exact.add(keys.exact);
+        if (keys.loose) loose.add(keys.loose);
+      });
+
+    return { saleIds, exact, loose };
+  }
+
+  function saleEventHasMatchingOrder(event, addressMap, matchSets) {
+    const directSaleId = idKey(event?.sales_order_id);
+    if (directSaleId && matchSets.saleIds.has(directSaleId)) return true;
+
+    const keys = saleWorkedMatchKeys(event, addressMap);
+    return !!(
+      (keys.exact && matchSets.exact.has(keys.exact)) ||
+      (keys.loose && matchSets.loose.has(keys.loose))
+    );
+  }
+
+  function unmatchedSaleEventRecords() {
+    const addressMap = buildAddressMap();
+    const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    const matchSets = buildSaleOrderMatchSets(addressMap, slotMap);
+
+    return state.address_events
+      .filter(row => rowMatchesUi(row, addressMap, slotMap))
+      .filter(isSaleDoorEvent)
+      .filter(event => !saleEventHasMatchingOrder(event, addressMap, matchSets));
+  }
+
   function workedDoorRecords() {
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
@@ -1694,6 +1734,7 @@
     const f = filters();
     const addressMap = buildAddressMap();
     const slotMap = new Map(state.schedule_slots.map(s => [idKey(s.id), s]));
+    const matchSets = buildSaleOrderMatchSets(addressMap, slotMap);
     const sales = renderedState.sales.map(s => ({
       time: s.created_at,
       type: 'Sale',
@@ -1705,15 +1746,21 @@
     }));
     const events = state.address_events
       .filter(row => rowMatchesUi(row, addressMap, slotMap))
-      .map(row => ({
-        time: row.created_at,
-        type: 'Disposition',
-        rep: getRepName(row) || '—',
-        territory: getTerritory(row, addressMap, slotMap) || '—',
-        subject: buildAddressLabel(row, addressMap),
-        status: row.status || '—',
-        note: firstNonEmpty(row.note, row.notes)
-      }));
+      .map(row => {
+        const saleEvent = isSaleDoorEvent(row);
+        const hasOrder = saleEvent && saleEventHasMatchingOrder(row, addressMap, matchSets);
+        return {
+          time: row.created_at,
+          type: saleEvent ? (hasOrder ? 'Sale Event' : 'Sale — Missing Order') : 'Disposition',
+          rep: getRepName(row) || '—',
+          territory: getTerritory(row, addressMap, slotMap) || '—',
+          subject: buildAddressLabel(row, addressMap),
+          status: row.status || '—',
+          note: saleEvent && !hasOrder
+            ? 'Sale disposition exists, but no matching sales_orders record was loaded.'
+            : firstNonEmpty(row.note, row.notes)
+        };
+      });
     const bookings = state.schedule_activity_bookings
       .filter(row => rowMatchesUi(row, addressMap, slotMap))
       .map(row => {
@@ -2045,6 +2092,20 @@
     renderedState.sales = saleRecords();
     renderedState.activity = activityRecords();
     renderedState.reps = repRecords();
+
+    const unmatchedSaleEvents = unmatchedSaleEventRecords();
+    if (els.dashboardNotice) {
+      els.dashboardNotice.classList.toggle('integrity-error', unmatchedSaleEvents.length > 0);
+      if (unmatchedSaleEvents.length > 0) {
+        els.dashboardNotice.textContent =
+          '⚠ Data integrity alert: ' + unmatchedSaleEvents.length +
+          ' sale disposition(s) do not have a matching sales_orders record. ' +
+          'Do not count these as completed sales until they are repaired.';
+      } else {
+        els.dashboardNotice.textContent =
+          'Sales, worked doors, bookings, and install availability are synchronized for the current filters.';
+      }
+    }
 
     const today = todayIso();
     const installed = renderedState.sales.filter(s => s.lifecycle_key === 'installed').length;
