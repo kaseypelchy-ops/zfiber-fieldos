@@ -676,6 +676,8 @@
   let scheduleRefreshTimer = null;
   let scheduleRealtimeChannel = null;
   let scheduleRefreshDebounce = null;
+  let dashboardRefreshDebounce = null;
+  let liveRefreshInFlight = false;
   let loading = false;
   let loadedTeamScope = null;
   let salesTrendChartInstance, statusMixChartInstance, territoryPerformanceChartInstance, repPerformanceChartInstance;
@@ -1163,6 +1165,129 @@
     }
   }
 
+
+  function buildOperationalDateFilters() {
+    const f = filters();
+    const eventFilters = [];
+    const salesFilters = [];
+    const bookingFilters = [];
+
+    if (f.start) {
+      eventFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+      salesFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+      bookingFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+    }
+    if (f.end) {
+      eventFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+      salesFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+      bookingFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+    }
+
+    return { eventFilters, salesFilters, bookingFilters };
+  }
+
+  async function refreshOperationalData(reason = 'live') {
+    if (loading || liveRefreshInFlight || document.hidden) return;
+
+    liveRefreshInFlight = true;
+    try {
+      const { data: authData } = await supabaseClient.auth.getSession();
+      if (!authData?.session) {
+        showAuth('Your session expired. Please sign in again.');
+        return;
+      }
+
+      const selectedTeam = selectedTeamFilter();
+      const { eventFilters, salesFilters, bookingFilters } = buildOperationalDateFilters();
+      const scheduleWindow = scheduleDateWindow(14);
+      const slotFilters = [
+        { type: 'gte', column: 'slot_date', value: scheduleWindow.start },
+        { type: 'lte', column: 'slot_date', value: scheduleWindow.end }
+      ];
+      if (selectedTeam !== 'all') {
+        slotFilters.unshift({ type: 'eq', column: 'team_slug', value: selectedTeam });
+      }
+
+      const scheduleSalesFilters = [
+        { type: 'gte', column: 'install_date', value: scheduleWindow.start },
+        { type: 'lte', column: 'install_date', value: scheduleWindow.end }
+      ];
+
+      const [addressEvents, salesOrders, scheduleSalesOrders, slots, activityBookings] = await Promise.all([
+        fetchAllPages('address_events', {
+          order: { column: 'created_at', ascending: false },
+          filters: eventFilters,
+          maxRecords: 10000
+        }),
+        fetchAllPages('sales_orders', {
+          order: { column: 'created_at', ascending: false },
+          filters: salesFilters,
+          maxRecords: 5000
+        }),
+        fetchOptional('sales_orders', {
+          order: { column: 'install_date', ascending: true },
+          filters: scheduleSalesFilters,
+          maxRecords: 5000
+        }),
+        fetchAllPages('schedule_slots', {
+          order: { column: 'slot_date', ascending: true },
+          filters: slotFilters,
+          maxRecords: 5000
+        }),
+        fetchOptional('schedule_bookings', {
+          order: { column: 'created_at', ascending: false },
+          filters: bookingFilters,
+          maxRecords: 5000
+        })
+      ]);
+
+      const scheduleBookingResult = await fetchScheduleBookingsForSlots(slots);
+      const addressMap = buildAddressMap(state.addresses);
+      const slotMap = new Map(slots.map(slot => [idKey(slot.id), slot]));
+
+      state.address_events = addressEvents.filter(row => teamRow(row, addressMap, slotMap));
+      state.sales_orders = salesOrders.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_sales_orders = scheduleSalesOrders.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_slots = slots.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_bookings = scheduleBookingResult.rows.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_activity_bookings = activityBookings.filter(row => teamRow(row, addressMap, slotMap));
+      state.schedule_bookings_loaded = scheduleBookingResult.loaded;
+
+      populateFilters();
+      renderAll();
+
+      const reasonText = reason === 'realtime'
+        ? 'Live sale update'
+        : reason === 'focus'
+          ? 'Dashboard resumed'
+          : reason === 'poll'
+            ? 'Automatic refresh'
+            : 'Dashboard refresh';
+
+      els.statusLine.textContent =
+        reasonText + ': ' + renderedState.sales.length +
+        ' visible sale(s). Updated ' + new Date().toLocaleTimeString() + '.';
+      els.statusLine.classList.remove('error');
+    } catch (err) {
+      console.error('Operational dashboard refresh failed', err);
+      els.statusLine.textContent =
+        'Live refresh failed: ' + (err?.message || 'Could not reload dashboard data.') +
+        ' Use Refresh Data to try again.';
+      els.statusLine.classList.add('error');
+    } finally {
+      liveRefreshInFlight = false;
+    }
+  }
+
+  function queueDashboardRefresh(reason = 'realtime') {
+    if (document.hidden || loading) return;
+    if (dashboardRefreshDebounce) clearTimeout(dashboardRefreshDebounce);
+    dashboardRefreshDebounce = setTimeout(() => {
+      dashboardRefreshDebounce = null;
+      refreshOperationalData(reason);
+    }, 650);
+  }
+
   function queueScheduleRefresh() {
     if (document.hidden || loading) return;
     if (scheduleRefreshDebounce) clearTimeout(scheduleRefreshDebounce);
@@ -1181,6 +1306,10 @@
       clearTimeout(scheduleRefreshDebounce);
       scheduleRefreshDebounce = null;
     }
+    if (dashboardRefreshDebounce) {
+      clearTimeout(dashboardRefreshDebounce);
+      dashboardRefreshDebounce = null;
+    }
     if (scheduleRealtimeChannel) {
       try { supabaseClient.removeChannel(scheduleRealtimeChannel); } catch (err) {}
       scheduleRealtimeChannel = null;
@@ -1195,18 +1324,23 @@
     // not enabled in the Supabase publication.
     try {
       scheduleRealtimeChannel = supabaseClient
-        .channel('fieldos-team-schedule-live-' + selectedTeamFilter())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, queueScheduleRefresh)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, queueScheduleRefresh)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, queueScheduleRefresh)
+        .channel('fieldos-team-dashboard-live-' + selectedTeamFilter())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, () => queueDashboardRefresh('realtime'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, () => queueDashboardRefresh('realtime'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, () => queueDashboardRefresh('realtime'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'address_events' }, () => queueDashboardRefresh('realtime'))
         .subscribe();
     } catch (err) {
       console.warn('Schedule realtime could not start; polling will remain active.', err);
     }
 
+    // Lightweight fallback: reload operational rows every 20 seconds. This
+    // catches new sales even when Supabase Realtime is disconnected.
     scheduleRefreshTimer = setInterval(() => {
-      if (!document.hidden && !loading) refreshScheduleOnly();
-    }, 45000);
+      if (!document.hidden && !loading && !liveRefreshInFlight) {
+        refreshOperationalData('poll');
+      }
+    }, 20000);
   }
 
   async function refreshScheduleOnly() {
@@ -1338,8 +1472,8 @@
       const [addresses, reps, addressEvents, salesOrders, scheduleSalesOrders, slots, activityBookings] = await Promise.all([
         fetchOptional('addresses', { order: { column: 'address1', ascending: true }, filters: addressFilters, maxRecords: 20000 }),
         fetchOptional('reps', { order: { column: 'full_name', ascending: true }, filters: repFilters }),
-        fetchOptional('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters, maxRecords: 10000 }),
-        fetchOptional('sales_orders', { order: { column: 'created_at', ascending: false }, filters: salesFilters, maxRecords: 5000 }),
+        fetchAllPages('address_events', { order: { column: 'created_at', ascending: false }, filters: eventFilters, maxRecords: 10000 }),
+        fetchAllPages('sales_orders', { order: { column: 'created_at', ascending: false }, filters: salesFilters, maxRecords: 5000 }),
         fetchOptional('sales_orders', { order: { column: 'install_date', ascending: true }, filters: scheduleSalesFilters, maxRecords: 5000 }),
         fetchOptional('schedule_slots', { order: { column: 'slot_date', ascending: true }, filters: slotFilters, maxRecords: 5000 }),
         fetchOptional('schedule_bookings', { order: { column: 'created_at', ascending: false }, filters: bookingFilters, maxRecords: 5000 })
@@ -2606,9 +2740,9 @@
   [els.territory, els.rep, els.status].forEach(el => el.addEventListener('change', renderAll));
   if (els.scheduleHorizon) els.scheduleHorizon.addEventListener('change', renderScheduleAvailability);
   if (els.scheduleRefresh) els.scheduleRefresh.addEventListener('click', refreshScheduleOnly);
-  window.addEventListener('focus', queueScheduleRefresh);
+  window.addEventListener('focus', () => queueDashboardRefresh('focus'));
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) queueScheduleRefresh();
+    if (!document.hidden) queueDashboardRefresh('focus');
   });
   [els.search].forEach(el => el.addEventListener('input', renderAll));
   [els.start, els.end].forEach(el => el.addEventListener('change', loadData));
