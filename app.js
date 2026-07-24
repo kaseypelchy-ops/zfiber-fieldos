@@ -711,7 +711,12 @@ function processOfflineQueue(manual) {
   if (offlineSyncRunning) return Promise.resolve(false);
   var q = readOfflineQueue();
   if (!q.length) {
-    if (manual) toast('✅ Everything is already synced', 't-ok');
+    if (manual) {
+      // "Synced" describes the offline queue. Refresh the schedule too so
+      // the user sees the current database capacity rather than stale UI data.
+      refreshScheduleRealtimeView();
+      toast('✅ Everything is synced — schedule refreshed', 't-ok');
+    }
     updateOfflineQueueUI();
     return Promise.resolve(true);
   }
@@ -731,11 +736,20 @@ function processOfflineQueue(manual) {
 
   var remaining = [];
   var synced = 0;
+  var scheduleChanged = false;
 
   return q.reduce(function(chain, task) {
     return chain.then(function() {
       return executeOfflineTask(task).then(function() {
         synced++;
+        if (
+          task.rpc === 'fieldos_submit_sale' ||
+          task.table === 'schedule_bookings' ||
+          task.table === 'schedule_slots' ||
+          task.table === 'sales_orders'
+        ) {
+          scheduleChanged = true;
+        }
       }).catch(function(err) {
         console.error('Offline sync failed for task', task, err);
         task.attempts = Number(task.attempts || 0) + 1;
@@ -747,6 +761,12 @@ function processOfflineQueue(manual) {
     writeOfflineQueue(remaining);
     offlineSyncRunning = false;
     updateOfflineQueueUI();
+    if (scheduleChanged) {
+      // A queued transactional sale may have completed while the schedule
+      // picker or dashboard still holds an older in-memory slot count.
+      // Always reload the authoritative slot, booking, and scheduled-sale data.
+      refreshScheduleRealtimeView();
+    }
     if (synced && manual) toast('✅ Synced ' + synced + ' queued item(s)', 't-ok');
     if (!synced && manual && remaining.length) toast('⚠ Still could not sync queued items', 't-err');
     return remaining.length === 0;
@@ -4007,7 +4027,19 @@ async function submitSale(pkgLabel) {
 
   if (schedData[selSlot.date] && schedData[selSlot.date][selSlot.time]) {
     var localSlot = schedData[selSlot.date][selSlot.time];
-    localSlot.booked = Number(localSlot.booked || 0) + 1;
+    var returnedCapacity = Number(transactionResult && transactionResult.capacity);
+    var returnedBooked = Number(transactionResult && transactionResult.booked_after);
+
+    // Prefer the database result. This avoids displaying the slot as open when
+    // the local browser had an older count before the transaction completed.
+    if (!queuedOffline && Number.isFinite(returnedCapacity) && returnedCapacity >= 0) {
+      localSlot.cap = returnedCapacity;
+    }
+    if (!queuedOffline && Number.isFinite(returnedBooked) && returnedBooked >= 0) {
+      localSlot.booked = returnedBooked;
+    } else {
+      localSlot.booked = Number(localSlot.booked || 0) + 1;
+    }
     localSlot.avail = Math.max(0, Number(localSlot.cap || 0) - Number(localSlot.booked || 0));
   }
 

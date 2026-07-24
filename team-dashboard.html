@@ -673,6 +673,9 @@
   let state = { addresses: [], reps: [], address_events: [], sales_orders: [], schedule_sales_orders: [], schedule_slots: [], schedule_bookings: [], schedule_activity_bookings: [], schedule_bookings_loaded: false };
   let renderedState = { sales: [], activity: [], reps: [] };
   let refreshTimer = null;
+  let scheduleRefreshTimer = null;
+  let scheduleRealtimeChannel = null;
+  let scheduleRefreshDebounce = null;
   let loading = false;
   let loadedTeamScope = null;
   let salesTrendChartInstance, statusMixChartInstance, territoryPerformanceChartInstance, repPerformanceChartInstance;
@@ -1063,6 +1066,7 @@
     els.dashboardShell.classList.add('hidden');
     els.authStatus.textContent = message || 'Please sign in.';
     if (refreshTimer) clearInterval(refreshTimer);
+    stopScheduleLiveRefresh();
   }
 
   function showDashboard(session) {
@@ -1079,6 +1083,7 @@
     els.authTitle.textContent = 'Sales Dashboard Login';
     els.dashboardSubtitle.textContent = 'Sales performance view for sales, upcoming install availability, recent activity, charts, route replay, and rep performance.';
     els.dashboardNotice.textContent = 'Use the filters below to review sales, schedule availability, activity, rep performance, charts, and route replay.';
+    startScheduleLiveRefresh();
   }
 
   async function signIn() {
@@ -1156,6 +1161,52 @@
       console.warn('Future schedule bookings could not be loaded; using slot booked_count values.', err);
       return { rows: [], loaded: false };
     }
+  }
+
+  function queueScheduleRefresh() {
+    if (document.hidden || loading) return;
+    if (scheduleRefreshDebounce) clearTimeout(scheduleRefreshDebounce);
+    scheduleRefreshDebounce = setTimeout(() => {
+      scheduleRefreshDebounce = null;
+      refreshScheduleOnly();
+    }, 500);
+  }
+
+  function stopScheduleLiveRefresh() {
+    if (scheduleRefreshTimer) {
+      clearInterval(scheduleRefreshTimer);
+      scheduleRefreshTimer = null;
+    }
+    if (scheduleRefreshDebounce) {
+      clearTimeout(scheduleRefreshDebounce);
+      scheduleRefreshDebounce = null;
+    }
+    if (scheduleRealtimeChannel) {
+      try { supabaseClient.removeChannel(scheduleRealtimeChannel); } catch (err) {}
+      scheduleRealtimeChannel = null;
+    }
+  }
+
+  function startScheduleLiveRefresh() {
+    stopScheduleLiveRefresh();
+
+    // Realtime updates the calendar immediately when enabled for these tables.
+    // The lightweight polling fallback keeps it current even when Realtime is
+    // not enabled in the Supabase publication.
+    try {
+      scheduleRealtimeChannel = supabaseClient
+        .channel('fieldos-team-schedule-live-' + selectedTeamFilter())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, queueScheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, queueScheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, queueScheduleRefresh)
+        .subscribe();
+    } catch (err) {
+      console.warn('Schedule realtime could not start; polling will remain active.', err);
+    }
+
+    scheduleRefreshTimer = setInterval(() => {
+      if (!document.hidden && !loading) refreshScheduleOnly();
+    }, 45000);
   }
 
   async function refreshScheduleOnly() {
@@ -2555,6 +2606,10 @@
   [els.territory, els.rep, els.status].forEach(el => el.addEventListener('change', renderAll));
   if (els.scheduleHorizon) els.scheduleHorizon.addEventListener('change', renderScheduleAvailability);
   if (els.scheduleRefresh) els.scheduleRefresh.addEventListener('click', refreshScheduleOnly);
+  window.addEventListener('focus', queueScheduleRefresh);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) queueScheduleRefresh();
+  });
   [els.search].forEach(el => el.addEventListener('input', renderAll));
   [els.start, els.end].forEach(el => el.addEventListener('change', loadData));
   els.autoRefresh.addEventListener('change', () => {
