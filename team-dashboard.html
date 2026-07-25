@@ -165,7 +165,7 @@
       margin-bottom: 18px;
       align-items: stretch;
     }
-    .charts-grid > .panel { min-width: 0; overflow: hidden; }
+    .charts-grid > .panel { min-width: 0; overflow: visible; }
     .charts-grid.performance-grid { grid-template-columns: 1fr; }
     .chart-box {
       position: relative;
@@ -857,13 +857,20 @@
     if (!canvas?.parentElement) return;
     const {
       min = 400,
-      max = 900,
+      max = null,
       perItem = 38,
       padding = 120
     } = options;
+
     const count = Math.max(1, Number(itemCount || 0));
-    const height = Math.max(min, Math.min(max, padding + (count * perItem)));
+    const requiredHeight = padding + (count * perItem);
+    const finiteMaximum = Number(max);
+    const height = Number.isFinite(finiteMaximum) && finiteMaximum > 0
+      ? Math.max(min, Math.min(finiteMaximum, requiredHeight))
+      : Math.max(min, requiredHeight);
+
     canvas.parentElement.style.height = height + 'px';
+    canvas.parentElement.style.minHeight = height + 'px';
   }
 
   function cartesianChartOptions({
@@ -2771,16 +2778,16 @@
       .sort((a,b) => b.sales - a.sales || b.worked - a.worked || String(a.rep).localeCompare(String(b.rep)));
 
     setDynamicChartHeight(els.territoryPerformanceChart, territoryRows.length, {
-      min: 430,
-      max: 980,
-      perItem: 40,
-      padding: 135
+      min: 480,
+      max: null,
+      perItem: 58,
+      padding: 155
     });
     setDynamicChartHeight(els.repPerformanceChart, repRows.length, {
-      min: 430,
-      max: 1100,
-      perItem: 40,
-      padding: 135
+      min: 480,
+      max: null,
+      perItem: 54,
+      padding: 155
     });
 
     if (els.salesTrendChart) {
@@ -2869,7 +2876,25 @@
             { label: 'Worked doors', data: territoryRows.map(r => r.worked), borderRadius: 5 }
           ]
         },
-        options: cartesianChartOptions({ indexAxis: 'y', maxTicks: territoryRows.length })
+        options: {
+          ...cartesianChartOptions({ indexAxis: 'y', maxTicks: territoryRows.length }),
+          datasets: {
+            bar: {
+              categoryPercentage: 0.82,
+              barPercentage: 0.78
+            }
+          },
+          scales: {
+            ...cartesianChartOptions({ indexAxis: 'y', maxTicks: territoryRows.length }).scales,
+            y: {
+              ...cartesianChartOptions({ indexAxis: 'y', maxTicks: territoryRows.length }).scales.y,
+              ticks: {
+                ...cartesianChartOptions({ indexAxis: 'y', maxTicks: territoryRows.length }).scales.y.ticks,
+                autoSkip: false
+              }
+            }
+          }
+        }
       });
     }
 
@@ -2883,7 +2908,25 @@
             { label: 'Worked doors', data: repRows.map(r => r.worked), borderRadius: 5 }
           ]
         },
-        options: cartesianChartOptions({ indexAxis: 'y', maxTicks: repRows.length })
+        options: {
+          ...cartesianChartOptions({ indexAxis: 'y', maxTicks: repRows.length }),
+          datasets: {
+            bar: {
+              categoryPercentage: 0.82,
+              barPercentage: 0.78
+            }
+          },
+          scales: {
+            ...cartesianChartOptions({ indexAxis: 'y', maxTicks: repRows.length }).scales,
+            y: {
+              ...cartesianChartOptions({ indexAxis: 'y', maxTicks: repRows.length }).scales.y,
+              ticks: {
+                ...cartesianChartOptions({ indexAxis: 'y', maxTicks: repRows.length }).scales.y.ticks,
+                autoSkip: false
+              }
+            }
+          }
+        }
       });
     }
   }
