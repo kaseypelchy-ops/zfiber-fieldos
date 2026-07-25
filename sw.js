@@ -4,7 +4,7 @@
    reps get fresh files on their next open.
    ============================================================ */
 
-var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.4.4-20260724-sale-integrity-v1';
+var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.4.5-20260725-sync-v2';
 
 /* Files that make up the app shell — cached on install so the
    app loads instantly even with no signal. */

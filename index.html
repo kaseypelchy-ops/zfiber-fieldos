@@ -394,7 +394,7 @@
 </script>
 
 <!-- App logic -->
-<script defer src="app.js?v=fieldos-sale-integrity-v1-20260724"></script>
+<script defer src="app.js?v=fieldos-sync-v2-20260725"></script>
 <!-- Service worker -->
 <script>
   if ('serviceWorker' in navigator) {
@@ -407,7 +407,7 @@
     });
 
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('sw.js?v=fieldos-sale-integrity-v1-20260724')
+      navigator.serviceWorker.register('sw.js?v=fieldos-sync-v2-20260725')
         .then(function(registration) {
           registration.update().catch(function(){});
           setInterval(function() {

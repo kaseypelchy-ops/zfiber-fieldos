@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.0';
-var BUILD_ID    = '2026.07.24-sale-integrity-v1';
+var BUILD_ID    = '2026.07.25-sync-v2';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
