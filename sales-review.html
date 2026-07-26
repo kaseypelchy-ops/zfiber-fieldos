@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- FieldOS Sales Review status RPC build 2026.07.26-status-v2 -->
   <title>FieldOS Sales Review & Invoicing</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -578,31 +579,36 @@
       </div>`;
     }
 
-    async function updateSale(id, payload) {
+    async function runStatusAction(id, action) {
       const key = idKey(id);
       if (!key) throw new Error('Sales action blocked because the sale ID is missing.');
-      const { data, error } = await supabaseClient
-        .from('sales_orders')
-        .update(payload)
-        .eq('id', id)
-        .select('id');
-      if (error) throw error;
-      if (!Array.isArray(data) || !data.length) {
-        throw new Error('No sales record was updated. Your account may not have permission to update this sale, or the record no longer exists.');
+
+      const { data, error } = await supabaseClient.rpc(
+        'fieldos_sales_review_set_status',
+        {
+          p_sale_id: key,
+          p_action: action
+        }
+      );
+
+      if (error) {
+        const details = [error.message, error.details, error.hint]
+          .filter(Boolean)
+          .join(' — ');
+        throw new Error(details || 'The Sales Review status update failed.');
       }
-      return data[0];
+
+      const rows = Array.isArray(data) ? data : (data ? [data] : []);
+      if (!rows.length) {
+        throw new Error('The status RPC returned no updated sales record.');
+      }
+
+      return rows[0];
     }
     async function markEntered(id) {
       const sale = findSaleById(id);
       if (!sale) throw new Error(`Could not find the selected sale (${idKey(id) || 'missing ID'}) in the current review data.`);
-      const now = new Date().toISOString();
-      await updateSale(sale.id, {
-        review_status: 'entered_in_zip',
-        reviewed_at: now,
-        reviewed_by: state.userEmail,
-        entered_in_zip_at: now,
-        entered_in_zip_by: state.userEmail
-      });
+      await runStatusAction(sale.id, 'entered_in_zip');
       await loadData();
     }
     async function markOutcome(id, outcome) {
@@ -610,23 +616,7 @@
       if (!sale) throw new Error(`Could not find the selected sale (${idKey(id) || 'missing ID'}) in the current review data.`);
       const label = outcome === 'installed' ? 'installed' : outcome === 'canceled' ? 'canceled' : 'needs rescheduled';
       if (!confirm(`Mark ${sale.customer_name || 'this sale'} as ${label}?`)) return;
-      const now = new Date().toISOString();
-      const payload = {
-        review_status: outcome === 'canceled'
-          ? 'canceled'
-          : (normalize(sale.review_status) === 'submitted' ? 'entered_in_zip' : (sale.review_status || 'entered_in_zip')),
-        reviewed_at: now,
-        reviewed_by: state.userEmail,
-        install_outcome: outcome,
-        install_outcome_at: now,
-        install_outcome_by: state.userEmail,
-        review_note: appendNote(sale.review_note, `Marked ${label} from fast Sales Review page by ${state.userEmail} on ${new Date().toLocaleString()}`)
-      };
-      if (!sale.entered_in_zip_at && outcome !== 'canceled') {
-        payload.entered_in_zip_at = now;
-        payload.entered_in_zip_by = state.userEmail;
-      }
-      await updateSale(sale.id, payload);
+      await runStatusAction(sale.id, outcome);
       await loadData();
     }
     function appendNote(existing, next) { return [existing, next].filter(Boolean).join(' | '); }
