@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- FieldOS Sales Review status RPC build 2026.07.26-status-v2 -->
+  <!-- FieldOS Sales Review atomic invoice build 2026.07.27-invoice-v3 -->
   <title>FieldOS Sales Review & Invoicing</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -622,13 +622,40 @@
     function appendNote(existing, next) { return [existing, next].filter(Boolean).join(' | '); }
 
     async function nextInvoiceId(prefix = 'Zito') {
-      const { data, error } = await supabaseClient.from('sales_orders').select('invoice_id').not('invoice_id', 'is', null).limit(2500);
-      if (error) { console.warn('Could not calculate next invoice id.', error); return `${prefix}-${Date.now()}`; }
+      const { data, error } = await supabaseClient
+        .from('fieldos_invoice_batches')
+        .select('invoice_number,invoice_id')
+        .order('invoice_number', { ascending: false })
+        .limit(1);
+
+      if (!error && Array.isArray(data) && data.length) {
+        const next = Number(data[0].invoice_number || 0) + 1;
+        if (Number.isFinite(next) && next > 0) return `${prefix}-${next}`;
+      }
+
+      /*
+       * This value is only a suggestion. The database RPC remains the
+       * authoritative allocator and prevents duplicates.
+       */
+      const { data: salesData, error: salesError } = await supabaseClient
+        .from('sales_orders')
+        .select('invoice_id')
+        .not('invoice_id', 'is', null)
+        .limit(2500);
+
+      if (salesError) {
+        console.warn('Could not calculate the next invoice suggestion.', error || salesError);
+        return '';
+      }
+
       let max = 0;
-      (data || []).forEach(r => {
-        const m = String(r.invoice_id || '').match(new RegExp('^' + prefix + '-(\d+)$', 'i'));
-        if (m) max = Math.max(max, Number(m[1]));
+      (salesData || []).forEach(r => {
+        const match = String(r.invoice_id || '').match(
+          new RegExp('^' + prefix + '-(\\d+)$', 'i')
+        );
+        if (match) max = Math.max(max, Number(match[1]));
       });
+
       return `${prefix}-${max + 1}`;
     }
     function invoiceExportRows(rows, invoiceId, batchId) {
@@ -658,24 +685,71 @@
       });
     }
     async function invoiceRows(rows, requestedInvoiceId = '') {
-      const ready = rows.filter(r => normalize(r.install_outcome) === 'installed' && !isInvoiced(r));
-      if (!ready.length) { alert('No installed sales are ready to invoice in this selection.'); return; }
+      const ready = rows.filter(
+        r => normalize(r.install_outcome) === 'installed' && !isInvoiced(r)
+      );
+
+      if (!ready.length) {
+        alert('No installed sales are ready to invoice in this selection.');
+        return;
+      }
+
       const defaultInvoiceId = requestedInvoiceId || await nextInvoiceId('Zito');
-      const invoiceId = prompt(`Invoice ID for ${ready.length} installed sale(s):`, defaultInvoiceId);
-      if (!invoiceId) return;
-      const batchId = crypto.randomUUID();
-      const now = new Date().toISOString();
-      const ids = ready.map(r => r.id);
-      const { error } = await supabaseClient.from('sales_orders').update({
-        invoice_id: invoiceId,
-        invoice_batch_id: batchId,
-        invoiced_at: now,
-        invoiced_by: state.userEmail,
-        invoice_exported_at: now,
-        review_note: `Exported from fast Sales Review page as ${invoiceId} by ${state.userEmail} on ${new Date().toLocaleString()}`
-      }).in('id', ids);
-      if (error) throw error;
-      csvDownload(`fieldos_invoice_${invoiceId}.csv`, invoiceExportRows(ready, invoiceId, batchId));
+      const requested = prompt(
+        `Invoice ID for ${ready.length} installed sale(s):`,
+        defaultInvoiceId
+      );
+
+      if (requested === null) return;
+
+      const ids = ready.map(r => idKey(r.id)).filter(Boolean);
+      const { data, error } = await supabaseClient.rpc(
+        'fieldos_create_invoice_batch',
+        {
+          p_sale_ids: ids,
+          p_requested_invoice_id: String(requested || '').trim() || null
+        }
+      );
+
+      if (error) {
+        const details = [error.message, error.details, error.hint]
+          .filter(Boolean)
+          .join(' — ');
+        throw new Error(details || 'Invoice batch creation failed.');
+      }
+
+      const result = Array.isArray(data) ? data[0] : data;
+      if (!result?.batch_id || !result?.invoice_id) {
+        throw new Error('The invoice RPC did not return a valid invoice batch.');
+      }
+
+      const updatedIds = new Set(
+        (Array.isArray(result.sale_ids) ? result.sale_ids : [])
+          .map(idKey)
+          .filter(Boolean)
+      );
+
+      const exportedRows = ready.filter(r => updatedIds.has(idKey(r.id)));
+      if (!exportedRows.length) {
+        throw new Error('The invoice was created, but no updated sales were returned for export.');
+      }
+
+      csvDownload(
+        `fieldos_invoice_${result.invoice_id}.csv`,
+        invoiceExportRows(
+          exportedRows,
+          result.invoice_id,
+          result.batch_id
+        )
+      );
+
+      if (exportedRows.length !== ready.length) {
+        alert(
+          `${exportedRows.length} of ${ready.length} selected sales were invoiced. ` +
+          'Another process may have updated the remaining sales.'
+        );
+      }
+
       await loadData();
     }
 
