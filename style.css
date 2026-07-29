@@ -1722,6 +1722,25 @@ select.team-select option { background: var(--card); color: var(--text); }
   max-width: 220px;
 }
 
+.ar-pending-sync {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, .55);
+  background: rgba(245, 158, 11, .14);
+  color: #fde68a;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: "Space Mono", monospace;
+  line-height: 1.35;
+}
+
+.prev-disp-status.is-pending-sync {
+  color: #fde68a !important;
+}
+
 
 /* Top Bar Drop Pin Button */
 .topbar-btn {

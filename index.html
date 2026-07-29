@@ -394,20 +394,38 @@
 </script>
 
 <!-- App logic -->
-<script defer src="app.js?v=fieldos-sync-v2-20260725"></script>
+<script defer src="app.js?v=offline-pin-safety-v1-20260728"></script>
 <!-- Service worker -->
 <script>
   if ('serviceWorker' in navigator) {
     var fieldosReloadingForWorker = false;
 
+    function fieldosPendingQueueCount() {
+      try {
+        var queue = JSON.parse(localStorage.getItem('fieldos_offline_queue_v1') || '[]');
+        return Array.isArray(queue) ? queue.length : 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+
     navigator.serviceWorker.addEventListener('controllerchange', function() {
       if (fieldosReloadingForWorker) return;
+
+      if (fieldosPendingQueueCount() > 0) {
+        window.FIELDOS_WORKER_RELOAD_PENDING = true;
+        if (typeof window.toast === 'function') {
+          window.toast('FieldOS update ready — reload deferred until pending field activity syncs.', 't-info');
+        }
+        return;
+      }
+
       fieldosReloadingForWorker = true;
       window.location.reload();
     });
 
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('sw.js?v=fieldos-sync-v2-20260725')
+      navigator.serviceWorker.register('sw.js?v=offline-pin-safety-v1-20260728')
         .then(function(registration) {
           registration.update().catch(function(){});
           setInterval(function() {

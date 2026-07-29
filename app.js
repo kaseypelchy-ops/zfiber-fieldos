@@ -18,8 +18,8 @@ var TEAM_LINK_ALIASES = {
 // ──────────────────────────────────────────────────────────
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
-var APP_VERSION = '2.1.0';
-var BUILD_ID    = '2026.07.25-sync-v2';
+var APP_VERSION = '2.1.1';
+var BUILD_ID    = '2026.07.28-offline-pin-safety-v1';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -56,6 +56,27 @@ var scheduleConfirmedClaims = {}; // short-lived DB-confirmed slot counts after 
 
 var appUpdateCheckTimer = null;
 var appUpdateReloading = false;
+var deferredAppUpdateBuild = '';
+var appUpdateDeferredNoticeShown = false;
+
+function hasPendingOfflineWork() {
+  return !!offlineSyncRunning || readOfflineQueue().length > 0;
+}
+
+function reloadForDeferredAppUpdateIfSafe() {
+  if (appUpdateReloading || hasPendingOfflineWork()) return false;
+
+  var workerUpdateWaiting = window.FIELDOS_WORKER_RELOAD_PENDING === true;
+  if (!workerUpdateWaiting && !deferredAppUpdateBuild) return false;
+
+  appUpdateReloading = true;
+  window.FIELDOS_WORKER_RELOAD_PENDING = false;
+  toast('Field activity is synced. Applying the FieldOS update…', 't-info');
+  setTimeout(function() {
+    window.location.reload();
+  }, 650);
+  return true;
+}
 
 function checkForRequiredAppUpdate() {
   if (navigator.onLine === false || appUpdateReloading) return Promise.resolve(false);
@@ -70,12 +91,18 @@ function checkForRequiredAppUpdate() {
       var availableBuild = String((versionInfo && versionInfo.build) || '').trim();
       if (!availableBuild || !currentBuild || availableBuild === currentBuild) return false;
 
-      appUpdateReloading = true;
-      toast('A required FieldOS update was found. Refreshing now…', 't-info');
-      setTimeout(function() {
-        window.location.reload();
-      }, 450);
-      return true;
+      if (hasPendingOfflineWork()) {
+        deferredAppUpdateBuild = availableBuild;
+        window.FIELDOS_WORKER_RELOAD_PENDING = true;
+        if (!appUpdateDeferredNoticeShown) {
+          appUpdateDeferredNoticeShown = true;
+          toast('FieldOS update ready — it will apply after pending field activity syncs.', 't-info');
+        }
+        return false;
+      }
+
+      deferredAppUpdateBuild = availableBuild;
+      return reloadForDeferredAppUpdateIfSafe();
     })
     .catch(function(err) {
       console.warn('FieldOS build check could not complete.', err);
@@ -706,6 +733,7 @@ function readOfflineQueue() {
 
 function writeOfflineQueue(rows) {
   try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(rows || [])); } catch (e) {}
+  applyOfflineQueueOverlayToAddresses(addresses);
   updateOfflineQueueUI();
 }
 
@@ -725,7 +753,7 @@ function enqueueOfflineTask(type, table, payload, label) {
     attempts: 0
   });
   writeOfflineQueue(q);
-  toast('📴 Saved offline — will sync automatically', 't-info');
+  toast('📴 Saved on this device — pending sync', 't-info');
   return true;
 }
 
@@ -1005,8 +1033,8 @@ function updateOfflineQueueUI() {
   }
   if (q.length > 0) {
     btn.classList.add(navigator.onLine === false ? 'error' : 'pending');
-    btn.textContent = q.length + ' pending';
-    btn.title = q.length + ' queued item(s). Tap to sync.';
+    btn.textContent = q.length + ' pending sync';
+    btn.title = q.length + ' item(s) saved on this device. Tap to sync.';
   } else {
     btn.textContent = 'Synced';
     btn.title = 'All field activity is synced.';
@@ -1194,6 +1222,7 @@ function processOfflineQueue(manual) {
     }
     if (synced && manual) toast('✅ Synced ' + synced + ' queued item(s)', 't-ok');
     if (!synced && manual && remaining.length) toast('⚠ Still could not sync queued items', 't-err');
+    if (remaining.length === 0) reloadForDeferredAppUpdateIfSafe();
     return remaining.length === 0;
   }).catch(function(err) {
     console.error(err);
@@ -1398,6 +1427,86 @@ var focusPulseLayer = null;
 // Rep-assistant state
 var OFFLINE_QUEUE_KEY = 'fieldos_offline_queue_v1';
 var offlineSyncRunning = false;
+
+function queuedAddressStateFromTask(task) {
+  if (!task) return null;
+  var payload = task.payload || {};
+  var addressId = payload.address_id;
+  if (addressId == null || addressId === '') return null;
+
+  if (task.table === 'address_events') {
+    return {
+      addressId: String(addressId),
+      status: String(payload.status || 'pending').toLowerCase().trim(),
+      note: String(payload.note || ''),
+      salesperson: String(payload.rep_name || ''),
+      knockedAt: payload.knocked_at || payload.created_at || task.created_at || null,
+      decisionMakerSpokenTo: payload.decision_maker_spoken_to === true ? 'Y' : 'N',
+      followUpNeeded: payload.follow_up_needed === true ? 'Y' : 'N',
+      saleMade: payload.sale_made === true ? 'Y' : 'N',
+      queuedAt: task.created_at || null,
+      queueId: task.id || ''
+    };
+  }
+
+  if (task.rpc === 'fieldos_submit_sale' || task.rpc === 'fieldos_recover_legacy_sale') {
+    var saleStatus = String(payload.address_status || payload.package_key || '').toLowerCase().trim();
+    if (!saleStatus) saleStatus = 'gig';
+    return {
+      addressId: String(addressId),
+      status: saleStatus,
+      note: String(payload.notes || ''),
+      salesperson: String(payload.rep_name || ''),
+      knockedAt: task.created_at || null,
+      decisionMakerSpokenTo: payload.decision_maker_spoken_to === false ? 'N' : 'Y',
+      followUpNeeded: payload.follow_up_needed === true ? 'Y' : 'N',
+      saleMade: 'Y',
+      queuedAt: task.created_at || null,
+      queueId: task.id || ''
+    };
+  }
+
+  return null;
+}
+
+function buildOfflineAddressStateMap() {
+  var stateMap = {};
+  readOfflineQueue().forEach(function(task) {
+    var state = queuedAddressStateFromTask(task);
+    if (state) stateMap[state.addressId] = state;
+  });
+  return stateMap;
+}
+
+function applyOfflineQueueOverlayToAddresses(targetAddresses) {
+  var list = Array.isArray(targetAddresses) ? targetAddresses : [];
+  var stateMap = buildOfflineAddressStateMap();
+  var restored = 0;
+
+  list.forEach(function(addr) {
+    if (!addr) return;
+    addr.pendingSync = false;
+    addr.pendingSyncQueuedAt = null;
+    addr.pendingSyncQueueId = '';
+
+    var state = stateMap[String(addr.id)];
+    if (!state) return;
+
+    addr.status = state.status || addr.status;
+    addr.note = state.note;
+    addr.salesperson = state.salesperson || addr.salesperson || '';
+    addr.knockedAt = state.knockedAt || addr.knockedAt || null;
+    addr.decisionMakerSpokenTo = state.decisionMakerSpokenTo;
+    addr.followUpNeeded = state.followUpNeeded;
+    addr.saleMade = state.saleMade;
+    addr.pendingSync = true;
+    addr.pendingSyncQueuedAt = state.queuedAt;
+    addr.pendingSyncQueueId = state.queueId;
+    restored++;
+  });
+
+  return restored;
+}
 var nextBestDoorId = null;
 var gamePlanCollapsed = false;
 var launchLoadRunning = false;
@@ -2147,9 +2256,14 @@ function fetchAddressesFromSheet(opts) {
           primaryCampaign: row.primary_campaign || '',
           priorityRank: row.priority_rank_within_territory || row.primary_campaign_priority_rank || row.priority_rank || null,
           targetDate: row.target_date || '',
-          targetWeek: row.target_week || ''
+          targetWeek: row.target_week || '',
+          pendingSync: false,
+          pendingSyncQueuedAt: null,
+          pendingSyncQueueId: ''
         };
       });
+
+      var restoredPendingCount = applyOfflineQueueOverlayToAddresses(addresses);
 
       loadedRepLookupName = normalizeRepLoginName(repInput);
 
@@ -2161,7 +2275,12 @@ function fetchAddressesFromSheet(opts) {
 
       if (st) {
         st.className = 'dz-status ok';
-        st.textContent = '✓ Loaded ' + addresses.length + ' addresses' + (kmlFiles.filter(function(f){ return f.source === 'supabase'; }).length ? ' and territory map' : '');
+        st.textContent = '✓ Loaded ' + addresses.length + ' addresses' +
+          (kmlFiles.filter(function(f){ return f.source === 'supabase'; }).length ? ' and territory map' : '') +
+          (restoredPendingCount ? ' • restored ' + restoredPendingCount + ' pending sync pin(s)' : '');
+        if (restoredPendingCount) {
+          toast('📴 Restored ' + restoredPendingCount + ' pin(s) saved on this device — tap pending sync when connected.', 't-info');
+        }
       }
       if (document.getElementById('fetch-addr-icon')) {
         document.getElementById('fetch-addr-icon').textContent = '✅';
@@ -3068,6 +3187,9 @@ function buildList(filter) {
     var noteLine = (a.note && a.note.trim())
       ? '<div class="ar-note">' + escHtml(a.note.trim()) + '</div>'
       : '';
+    var pendingSyncLine = a.pendingSync
+      ? '<div class="ar-pending-sync">📴 Saved on device • pending sync</div>'
+      : '';
     var nextC = String(a.id) === String(nextBestDoorId || '') ? ' next-best-highlight' : '';
 
     // Route mode: show distance from current GPS position
@@ -3095,6 +3217,7 @@ function buildList(filter) {
         '<div class="ar-st">'  + escHtml(a.address) + '</div>' +
         '<div class="ar-sub">' + escHtml(sub)        + '</div>' +
         noteLine +
+        pendingSyncLine +
         modeLine +
         streetLine +
       '</div>' + tag + '</div>';
@@ -3595,8 +3718,8 @@ function openForm(id) {
       decisionMakerSpokenTo: addr.decisionMakerSpokenTo || 'N',
       followUpNeeded: addr.followUpNeeded || (isSoftInterestStatus(curStatus) ? 'Y' : 'N')
     });
-    prevStatus.textContent = prevEntry.label;
-    prevStatus.className   = 'prev-disp-status s-' + curStatus;
+    prevStatus.textContent = prevEntry.label + (addr.pendingSync ? ' • Pending sync' : '');
+    prevStatus.className   = 'prev-disp-status s-' + curStatus + (addr.pendingSync ? ' is-pending-sync' : '');
     if (curNote) {
       prevNote.textContent   = '💬 ' + curNote;
       prevNote.style.display = 'block';
@@ -3650,14 +3773,28 @@ function closeForm() {
   buildList();
 }
 
-function clearPrevDisposition() {
+async function clearPrevDisposition() {
   var addr = getAddr();
   if (!addr) return;
+
+  var saveResult = await updateAddressStatus(addr, 'pending', '', {
+    decisionMakerSpokenTo: 'N',
+    followUpNeeded: 'N',
+    saleMade: 'N'
+  });
+
+  if (!saveResult || saveResult.ok !== true) {
+    toast('⚠ Disposition was not cleared: ' + ((saveResult && saveResult.error) || 'database rejected the update'), 't-err');
+    return;
+  }
+
   addr.status = 'pending';
   addr.note   = '';
   addr.decisionMakerSpokenTo = 'N';
   addr.followUpNeeded = 'N';
   addr.saleMade = 'N';
+  addr.pendingSync = saveResult.pendingSync === true;
+
   // Reset banner
   document.getElementById('prev-disposition').style.display = 'none';
   // Reset all disposition buttons for the current territory
@@ -3672,16 +3809,13 @@ function clearPrevDisposition() {
   if (nsWrap) nsWrap.classList.add('hidden');
   if (nsNote) nsNote.value = '';
   resetOutcomeFlags();
-  // Update marker and sidebar to reflect cleared status
+
   if (addr.lat && addr.lng) placeMarker(addr);
   buildList();
-  updateAddressStatus(addr, 'pending', '', {
-    decisionMakerSpokenTo: 'N',
-    followUpNeeded: 'N',
-    saleMade: 'N'
-  });
-  toast('🗑 Disposition cleared', 't-info');
+  updateStats();
+  toast(saveResult.pendingSync ? '📴 Clear saved on this device — pending sync' : '🗑 Disposition cleared', saveResult.pendingSync ? 't-info' : 't-ok');
 }
+
 
 // ──────────────────────────────────────────────────────────
 //  SALES FORM COLLAPSE / EXPAND
@@ -4529,33 +4663,22 @@ async function submitStatus() {
   var notes   = (nsWrap && !nsWrap.classList.contains('hidden') && nsNote)
     ? (nsNote.value || '').trim()
     : '';
-  var outcomeFlags = normalizeOutcomeFlagsForStatus(selStatus ? (DISPOSITIONS.find(function(d){ return d.label === selStatus; }) || {}).status : '', getOutcomeFlags(false));
-  var mappedStatus = selStatus ? (DISPOSITIONS.find(function(d){ return d.label === selStatus; }) || {}).status : '';
+  var disposition = selStatus ? (DISPOSITIONS.find(function(d){ return d.label === selStatus; }) || {}) : {};
+  var mappedStatus = disposition.status || 'nocontact';
+  var outcomeFlags = normalizeOutcomeFlagsForStatus(mappedStatus, getOutcomeFlags(false));
   applyLockedCoords_(addr);
   var standardizedOutcome = getStandardizedOutcomeLabel(mappedStatus);
   var softInterestType = getSoftInterestType(mappedStatus);
-  var payload = {
-    salesperson: repName,
-    address: addr.address, city: addr.city||'', state: addr.state||'', zip: addr.zip||'',
-    sheetRow: addr.sheetRow || null,
-    lat: addr.lat != null ? addr.lat : '',
-    lng: addr.lng != null ? addr.lng : '',
-    firstName:'', lastName:'', phone:'', email:'',
-    package:'', notes: notes,
-    status: selStatus,
-    standardizedOutcome: standardizedOutcome,
-    softInterestType: softInterestType,
-    decisionMakerSpokenTo: outcomeFlags.decisionMakerSpokenTo,
-    followUpNeeded: outcomeFlags.followUpNeeded,
-    saleMade: outcomeFlags.saleMade
-  };
 
-  // Build label→status map from unified config
-  var smap = {};
-  DISPOSITIONS.forEach(function(d) {
-    smap[d.label] = d.status;
-  });
-  addr.status = mappedStatus || smap[selStatus] || 'nocontact';
+  var statusResult = await updateAddressStatus(addr, mappedStatus, notes, outcomeFlags);
+  if (!statusResult || statusResult.ok !== true) {
+    toast('⚠ Disposition was not saved: ' + ((statusResult && statusResult.error) || 'database rejected the update'), 't-err');
+    return;
+  }
+
+  // Change the visible pin only after Supabase confirms the event or the exact
+  // event has been safely written to this device's offline queue.
+  addr.status = mappedStatus;
   addr.standardizedOutcome = standardizedOutcome;
   addr.softInterestType = softInterestType;
   addr.salesperson = repName;
@@ -4563,18 +4686,21 @@ async function submitStatus() {
   addr.decisionMakerSpokenTo = outcomeFlags.decisionMakerSpokenTo;
   addr.followUpNeeded = outcomeFlags.followUpNeeded;
   addr.saleMade = outcomeFlags.saleMade;
+  addr.knockedAt = statusResult.knockedAt || new Date().toISOString();
+  addr.pendingSync = statusResult.pendingSync === true;
 
-  // NOTE: sendData() is intentionally NOT called here — no-sale statuses
-  // should never go to recordSale(). Only updateAddressStatus() is needed
-  // to write the status + note to the Addresses tab.
   maybeWriteNewAddrToSheet(addr);
-  var statusSaved = await updateAddressStatus(addr, addr.status, notes, outcomeFlags);
-  if (!statusSaved) return;
   if (addr.lat && addr.lng) placeMarker(addr);
   updateStats();
   buildList((document.getElementById('addr-search') && document.getElementById('addr-search').value) || null);
   refreshMapMarkers();
-  toast('📋 "' + selStatus + '" logged', 't-info');
+
+  if (statusResult.pendingSync) {
+    toast('📴 "' + selStatus + '" saved on this device — pending sync', 't-info');
+  } else {
+    toast('✅ "' + selStatus + '" saved', 't-ok');
+  }
+
   var nsNoteEl = document.getElementById('ns-note');
   if (nsNoteEl) nsNoteEl.value = '';
   closeForm();
@@ -4587,7 +4713,9 @@ async function updateAddressStatus(addr, status, note, flags) {
     saleMade: addr.saleMade || 'N'
   };
 
-  if (!addr || !addr.id) return false;
+  if (!addr || !addr.id) {
+    return { ok: false, pendingSync: false, error: 'Address ID is missing.' };
+  }
 
   var nowIso = new Date().toISOString();
   var teamPayload = getActiveTeamPayload();
@@ -4612,19 +4740,32 @@ async function updateAddressStatus(addr, status, note, flags) {
     eventPayload.lng = Number(addr.lng);
   }
 
-  if (!hasSupabase() || navigator.onLine === false) {
+  if (navigator.onLine === false) {
     enqueueOfflineTask('address_event', 'address_events', eventPayload, 'Disposition: ' + status);
-    return true;
+    return { ok: true, pendingSync: true, knockedAt: nowIso };
+  }
+
+  if (!hasSupabase()) {
+    return { ok: false, pendingSync: false, error: 'FieldOS database connection is not configured.' };
   }
 
   try {
     await insertSupabaseRow('address_events', eventPayload);
     processOfflineQueue(false);
-    return true;
+    return { ok: true, pendingSync: false, knockedAt: nowIso };
   } catch (err) {
-    console.error(err);
-    enqueueOfflineTask('address_event', 'address_events', eventPayload, 'Disposition: ' + status);
-    return true;
+    console.error('Address event submission failed:', err);
+
+    if (isConnectivityError(err)) {
+      enqueueOfflineTask('address_event', 'address_events', eventPayload, 'Disposition: ' + status);
+      return { ok: true, pendingSync: true, knockedAt: nowIso };
+    }
+
+    return {
+      ok: false,
+      pendingSync: false,
+      error: String((err && (err.message || err.details || err.hint || err.code)) || err || 'Database rejected the disposition.')
+    };
   }
 }
 
