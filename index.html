@@ -115,6 +115,7 @@
     <div class="tb-stat">Pending: <strong id="st-pend">0</strong></div>
     <div class="tb-actions">
       <button class="tb-btn sync-btn" id="offline-sync-btn" onclick="processOfflineQueue(true)" title="Sync queued field activity">Synced</button>
+      <span class="tb-live-status connecting" id="address-live-status" title="Connecting to live field updates…">◌ Connecting</span>
       <button class="tb-btn btn-logout" onclick="openSignOutConfirm()" title="Sign out">Log Out</button>
     </div>
   </div>
@@ -394,7 +395,7 @@
 </script>
 
 <!-- App logic -->
-<script defer src="app.js?v=offline-pin-safety-dashboard-time-v3-20260728"></script>
+<script defer src="app.js?v=address-realtime-v4-20260729"></script>
 <!-- Service worker -->
 <script>
   if ('serviceWorker' in navigator) {
@@ -425,7 +426,7 @@
     });
 
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('sw.js?v=offline-pin-safety-dashboard-time-v3-20260728')
+      navigator.serviceWorker.register('sw.js?v=address-realtime-v4-20260729')
         .then(function(registration) {
           registration.update().catch(function(){});
           setInterval(function() {

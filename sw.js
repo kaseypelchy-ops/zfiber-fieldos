@@ -4,7 +4,7 @@
    reps get fresh files on their next open.
    ============================================================ */
 
-var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.4.8-20260728-pin-safety-dashboard-time-v3';
+var CACHE_VERSION = 'fieldos-nextdoor-offline-v1.4.9-20260729-address-realtime-v4';
 
 /* Files that make up the app shell — cached on install so the
    app loads instantly even with no signal. */

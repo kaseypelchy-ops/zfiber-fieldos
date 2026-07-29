@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.1';
-var BUILD_ID    = '2026.07.28-offline-pin-safety-dashboard-time-v3';
+var BUILD_ID    = '2026.07.29-address-realtime-v4';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -53,6 +53,19 @@ var scheduleRealtimeDebounceTimer = null;
 var scheduleRefreshRunning = false;
 var scheduleRefreshPending = false;
 var scheduleConfirmedClaims = {}; // short-lived DB-confirmed slot counts after a completed sale
+
+
+// Address disposition Realtime state. Realtime is the primary path; a small
+// incremental poll protects field work when cellular service or a sleeping tab
+// temporarily disconnects the websocket.
+var addressRealtimeChannel = null;
+var addressRealtimeConnected = false;
+var addressRealtimePollTimer = null;
+var addressRealtimeReconnectTimer = null;
+var addressRealtimeRenderTimer = null;
+var addressRealtimePollRunning = false;
+var addressRealtimeLastSeenIso = '';
+var addressRealtimeSeenEventIds = {};
 
 var appUpdateCheckTimer = null;
 var appUpdateReloading = false;
@@ -756,6 +769,326 @@ function stopScheduleRealtime() {
   scheduleRealtimeChannel = null;
 }
 
+
+function setAddressRealtimeStatus(state, detail) {
+  var el = document.getElementById('address-live-status');
+  if (!el) return;
+
+  el.classList.remove('live', 'connecting', 'fallback', 'offline');
+  el.classList.add(state || 'connecting');
+
+  if (state === 'live') {
+    el.textContent = '● Live';
+    el.title = detail || 'Other reps’ saved dispositions appear automatically.';
+  } else if (state === 'fallback') {
+    el.textContent = '↻ Live fallback';
+    el.title = detail || 'Realtime is reconnecting. FieldOS is checking for new dispositions automatically.';
+  } else if (state === 'offline') {
+    el.textContent = '○ Offline';
+    el.title = detail || 'This phone is offline. Local work remains protected and will sync later.';
+  } else {
+    el.textContent = '◌ Connecting';
+    el.title = detail || 'Connecting to live field updates…';
+  }
+}
+
+function activeAddressRealtimeTerritories() {
+  var rows = (activeTerritories || []).map(function(value) {
+    return String(value || '').trim();
+  }).filter(Boolean);
+
+  if (!rows.length && activeTerritory) rows.push(String(activeTerritory).trim());
+  return rows.filter(function(value, index, all) { return value && all.indexOf(value) === index; });
+}
+
+function findLoadedAddressById(addressId) {
+  var target = String(addressId == null ? '' : addressId);
+  if (!target) return null;
+  for (var i = 0; i < addresses.length; i++) {
+    if (String(addresses[i] && addresses[i].id) === target) return addresses[i];
+  }
+  return null;
+}
+
+function addressEventTimeMs(row) {
+  if (!row) return 0;
+  var value = row.created_at || row.knocked_at || '';
+  var parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function rememberAddressRealtimeSeen(row) {
+  if (!row) return;
+  if (row.id) {
+    addressRealtimeSeenEventIds[String(row.id)] = Date.now();
+    var ids = Object.keys(addressRealtimeSeenEventIds);
+    if (ids.length > 1200) {
+      ids.sort(function(a, b) { return addressRealtimeSeenEventIds[a] - addressRealtimeSeenEventIds[b]; });
+      ids.slice(0, ids.length - 800).forEach(function(id) { delete addressRealtimeSeenEventIds[id]; });
+    }
+  }
+
+  var eventMs = addressEventTimeMs(row);
+  var currentMs = Date.parse(addressRealtimeLastSeenIso || '');
+  if (eventMs && (!Number.isFinite(currentMs) || eventMs > currentMs)) {
+    addressRealtimeLastSeenIso = new Date(eventMs).toISOString();
+  }
+}
+
+function addressEventMatchesActiveScope(row) {
+  if (!row) return false;
+
+  // The strongest match is an address already loaded on this rep’s phone.
+  if (row.address_id && findLoadedAddressById(row.address_id)) return true;
+
+  var territories = activeAddressRealtimeTerritories();
+  var rowTerritory = String(row.territory || '').trim();
+  if (territories.length && rowTerritory && territories.indexOf(rowTerritory) === -1) return false;
+
+  var activeSlug = String(getActiveTeamSlug ? getActiveTeamSlug() : '').toLowerCase().trim();
+  var rowSlug = String(row.team_slug || '').toLowerCase().trim();
+  if (activeSlug && rowSlug && activeSlug !== rowSlug) return false;
+
+  return !!rowTerritory && (!territories.length || territories.indexOf(rowTerritory) !== -1);
+}
+
+function updateActiveAddressRealtimePanel(addr) {
+  if (!addr || !isActiveAddress_(addr)) return;
+  var panel = document.getElementById('panel-form');
+  if (!panel || !panel.classList.contains('open')) return;
+
+  var prevDisp = document.getElementById('prev-disposition');
+  var prevStatus = document.getElementById('prev-disp-status');
+  var prevNote = document.getElementById('prev-disp-note');
+  if (!prevDisp || !prevStatus || !prevNote) return;
+
+  var curStatus = String(addr.status || '').toLowerCase().trim();
+  var config = getDispositions(addr);
+  var prevEntry = findDispByStatus(curStatus, config) || findDispByStatus(curStatus, DISPOSITIONS);
+
+  if (!prevEntry) {
+    prevDisp.style.display = 'none';
+    return;
+  }
+
+  prevStatus.textContent = prevEntry.label + (addr.pendingSync ? ' • Pending sync' : '');
+  prevStatus.className = 'prev-disp-status s-' + curStatus + (addr.pendingSync ? ' is-pending-sync' : '');
+  if (addr.note && String(addr.note).trim()) {
+    prevNote.textContent = '💬 ' + String(addr.note).trim();
+    prevNote.style.display = 'block';
+  } else {
+    prevNote.style.display = 'none';
+  }
+  prevDisp.style.display = 'block';
+}
+
+function queueAddressRealtimeRender() {
+  if (addressRealtimeRenderTimer) clearTimeout(addressRealtimeRenderTimer);
+  addressRealtimeRenderTimer = setTimeout(function() {
+    addressRealtimeRenderTimer = null;
+    updateStats();
+    var search = document.getElementById('addr-search');
+    buildList(search ? (search.value || null) : null);
+  }, 120);
+}
+
+function applyAddressRealtimeEvent(row, options) {
+  options = options || {};
+  if (!row || !row.address_id || !addressEventMatchesActiveScope(row)) return false;
+
+  var eventId = row.id ? String(row.id) : '';
+  if (!options.force && eventId && addressRealtimeSeenEventIds[eventId]) return false;
+
+  var addr = findLoadedAddressById(row.address_id);
+  if (!addr) return false;
+
+  var pendingState = buildOfflineAddressStateMap()[String(addr.id)];
+  if (pendingState) {
+    // Never let another phone or a reconnect overwrite a disposition that this
+    // device has not yet synchronized. After sync, the incremental poll
+    // reconciles the authoritative latest database event.
+    rememberAddressRealtimeSeen(row);
+    return false;
+  }
+
+  var incomingMs = addressEventTimeMs(row);
+  var currentMs = Date.parse(addr.latestEventCreatedAt || addr.knockedAt || '');
+  if (!options.force && incomingMs && Number.isFinite(currentMs) && incomingMs < currentMs) {
+    rememberAddressRealtimeSeen(row);
+    return false;
+  }
+
+  addr.status = String(row.status || addr.status || 'homes passed').toLowerCase().trim();
+  addr.salesperson = String(row.rep_name || addr.salesperson || '').trim();
+  addr.note = String(row.note || '').trim();
+  addr.knockedAt = row.knocked_at || row.created_at || addr.knockedAt || null;
+  addr.latestEventCreatedAt = row.created_at || row.knocked_at || addr.latestEventCreatedAt || null;
+  addr.latestEventId = row.id || addr.latestEventId || '';
+  addr.decisionMakerSpokenTo = row.decision_maker_spoken_to === true ? 'Y' : 'N';
+  addr.followUpNeeded = row.follow_up_needed === true ? 'Y' : 'N';
+  addr.saleMade = row.sale_made === true ? 'Y' : 'N';
+  addr.pendingSync = false;
+  addr.pendingSyncQueuedAt = null;
+  addr.pendingSyncQueueId = '';
+
+  rememberAddressRealtimeSeen(row);
+
+  if (mapObj && addr.lat != null && addr.lng != null) placeMarker(addr);
+  updateActiveAddressRealtimePanel(addr);
+  queueAddressRealtimeRender();
+
+  var incomingRep = String(row.rep_name || '').trim();
+  var ownEvent = normalizeRepLoginName(incomingRep) === normalizeRepLoginName(repName);
+  if (!ownEvent && document.visibilityState === 'visible' && options.silent !== true) {
+    toast('⚡ ' + (incomingRep || 'Another rep') + ' updated ' + addr.address, 't-info');
+  }
+
+  return true;
+}
+
+function initializeAddressRealtimeCursor() {
+  var latestMs = 0;
+  (addresses || []).forEach(function(addr) {
+    var ms = Date.parse((addr && (addr.latestEventCreatedAt || addr.knockedAt)) || '');
+    if (Number.isFinite(ms) && ms > latestMs) latestMs = ms;
+  });
+  addressRealtimeLastSeenIso = new Date(latestMs || (Date.now() - 5000)).toISOString();
+}
+
+function pollAddressRealtimeNow(forceReconcile) {
+  if (!supabaseClient || navigator.onLine === false || !addresses.length) return Promise.resolve(false);
+  if (addressRealtimePollRunning) return Promise.resolve(false);
+
+  addressRealtimePollRunning = true;
+  var territories = activeAddressRealtimeTerritories();
+  var cursorMs = Date.parse(addressRealtimeLastSeenIso || '');
+  var since = new Date((Number.isFinite(cursorMs) ? cursorMs : Date.now()) - 5000).toISOString();
+
+  var query = supabaseClient
+    .from('address_events')
+    .select('*')
+    .gte('created_at', since)
+    .order('created_at', { ascending: true })
+    .limit(1000);
+
+  if (territories.length === 1) query = query.eq('territory', territories[0]);
+  else if (territories.length > 1) query = query.in('territory', territories);
+
+  return query.then(function(res) {
+    if (res.error) throw res.error;
+    (res.data || []).forEach(function(row) {
+      applyAddressRealtimeEvent(row, { force: !!forceReconcile, silent: true });
+    });
+    return true;
+  }).catch(function(err) {
+    console.warn('FieldOS address live refresh failed:', err);
+    if (!addressRealtimeConnected) {
+      setAddressRealtimeStatus('fallback', 'Realtime reconnecting; automatic refresh is still active.');
+    }
+    return false;
+  }).finally(function() {
+    addressRealtimePollRunning = false;
+  });
+}
+
+function startAddressRealtimePoll(intervalMs) {
+  if (addressRealtimePollTimer) clearInterval(addressRealtimePollTimer);
+  addressRealtimePollTimer = setInterval(function() {
+    if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+      pollAddressRealtimeNow(false);
+    }
+  }, Number(intervalMs || 15000));
+}
+
+function scheduleAddressRealtimeReconnect() {
+  if (addressRealtimeReconnectTimer || navigator.onLine === false) return;
+  addressRealtimeReconnectTimer = setTimeout(function() {
+    addressRealtimeReconnectTimer = null;
+    if (!addressRealtimeConnected && addresses.length) startAddressRealtime();
+  }, 5000);
+}
+
+function startAddressRealtime() {
+  if (!supabaseClient || !addresses.length) return;
+
+  stopAddressRealtime();
+  initializeAddressRealtimeCursor();
+  setAddressRealtimeStatus(navigator.onLine === false ? 'offline' : 'connecting');
+
+  if (navigator.onLine === false) return;
+
+  var territories = activeAddressRealtimeTerritories();
+  var channel = supabaseClient.channel('fieldos-address-live-' + Math.random().toString(36).slice(2));
+
+  function receive(payload) {
+    var row = payload && payload.new;
+    if (row) applyAddressRealtimeEvent(row, { silent: false });
+  }
+
+  if (territories.length) {
+    territories.forEach(function(territory) {
+      channel = channel.on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'address_events',
+        filter: 'territory=eq.' + territory
+      }, receive);
+    });
+  } else {
+    channel = channel.on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'address_events'
+    }, receive);
+  }
+
+  addressRealtimeChannel = channel.subscribe(function(status, err) {
+    addressRealtimeConnected = status === 'SUBSCRIBED';
+
+    if (status === 'SUBSCRIBED') {
+      console.info('FieldOS address realtime connected for:', territories);
+      setAddressRealtimeStatus('live');
+      pollAddressRealtimeNow(false);
+      startAddressRealtimePoll(60000);
+      return;
+    }
+
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn('FieldOS address realtime unavailable; using incremental refresh fallback.', status, err || '');
+      addressRealtimeConnected = false;
+      setAddressRealtimeStatus('fallback');
+      startAddressRealtimePoll(10000);
+      scheduleAddressRealtimeReconnect();
+    }
+  });
+
+  // Start the fallback immediately so changes are still shared if Realtime
+  // publication is not enabled yet or the websocket is blocked by the network.
+  startAddressRealtimePoll(10000);
+  pollAddressRealtimeNow(false);
+}
+
+function stopAddressRealtime() {
+  addressRealtimeConnected = false;
+
+  if (addressRealtimeRenderTimer) {
+    clearTimeout(addressRealtimeRenderTimer);
+    addressRealtimeRenderTimer = null;
+  }
+  if (addressRealtimePollTimer) {
+    clearInterval(addressRealtimePollTimer);
+    addressRealtimePollTimer = null;
+  }
+  if (addressRealtimeReconnectTimer) {
+    clearTimeout(addressRealtimeReconnectTimer);
+    addressRealtimeReconnectTimer = null;
+  }
+  if (supabaseClient && addressRealtimeChannel) {
+    try { supabaseClient.removeChannel(addressRealtimeChannel); } catch (e) {}
+  }
+  addressRealtimeChannel = null;
+}
+
 function hasSupabase() {
   return !!supabaseClient;
 }
@@ -1231,6 +1564,7 @@ function processOfflineQueue(manual) {
   var remaining = [];
   var synced = 0;
   var scheduleChanged = false;
+  var addressEventsChanged = false;
 
   return q.reduce(function(chain, task) {
     return chain.then(function() {
@@ -1243,6 +1577,7 @@ function processOfflineQueue(manual) {
           );
         }
         synced++;
+        if (task.table === 'address_events') addressEventsChanged = true;
         if (
           (task.rpc === 'fieldos_submit_sale' || task.rpc === 'fieldos_recover_legacy_sale') ||
           task.table === 'schedule_bookings' ||
@@ -1262,6 +1597,12 @@ function processOfflineQueue(manual) {
     writeOfflineQueue(remaining);
     offlineSyncRunning = false;
     updateOfflineQueueUI();
+    if (addressEventsChanged) {
+      // Reconcile this phone with the authoritative newest event after its
+      // local queue has been removed. This also handles a newer disposition
+      // made by another rep while this device was offline.
+      pollAddressRealtimeNow(true);
+    }
     if (scheduleChanged) {
       // A queued transactional sale may have completed while the schedule
       // picker or dashboard still holds an older in-memory slot count.
@@ -1284,17 +1625,22 @@ function processOfflineQueue(manual) {
 window.addEventListener('online', function(){
   processOfflineQueue(false);
   startScheduleRealtime();
+  startAddressRealtime();
   queueScheduleRealtimeRefresh(0);
   checkForRequiredAppUpdate();
 });
 window.addEventListener('offline', function(){
   updateOfflineQueueUI();
   scheduleRealtimeConnected = false;
+  addressRealtimeConnected = false;
+  setAddressRealtimeStatus('offline');
 });
 
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'visible' && navigator.onLine !== false) {
     if (!scheduleRealtimeConnected) startScheduleRealtime();
+    if (!addressRealtimeConnected && addresses.length) startAddressRealtime();
+    pollAddressRealtimeNow(false);
     queueScheduleRealtimeRefresh(0);
     checkForRequiredAppUpdate();
   }
@@ -1302,6 +1648,8 @@ document.addEventListener('visibilitychange', function() {
 
 window.addEventListener('focus', function() {
   if (navigator.onLine !== false) {
+    if (!addressRealtimeConnected && addresses.length) startAddressRealtime();
+    pollAddressRealtimeNow(false);
     queueScheduleRealtimeRefresh(0);
     checkForRequiredAppUpdate();
   }
@@ -2295,6 +2643,8 @@ function fetchAddressesFromSheet(opts) {
           salesperson: (ev.rep_name || row.salesperson || '').trim(),
           note: (ev.note || row.note || '').toString().trim(),
           knockedAt: ev.knocked_at || row.knocked_at || null,
+          latestEventCreatedAt: ev.created_at || ev.knocked_at || row.knocked_at || null,
+          latestEventId: ev.id || '',
           decisionMakerSpokenTo: ev.decision_maker_spoken_to ? 'Y' : 'N',
           followUpNeeded: ev.follow_up_needed ? 'Y' : 'N',
           saleMade: ev.sale_made ? 'Y' : 'N',
@@ -2312,6 +2662,7 @@ function fetchAddressesFromSheet(opts) {
       });
 
       var restoredPendingCount = applyOfflineQueueOverlayToAddresses(addresses);
+      initializeAddressRealtimeCursor();
 
       loadedRepLookupName = normalizeRepLoginName(repInput);
 
@@ -2320,6 +2671,10 @@ function fetchAddressesFromSheet(opts) {
       geocodeAll();
       fitToAddresses();
       checkLaunchReady();
+
+      if (document.getElementById('page-app') && document.getElementById('page-app').style.display === 'block') {
+        startAddressRealtime();
+      }
 
       if (st) {
         st.className = 'dz-status ok';
@@ -2439,6 +2794,7 @@ function selectTeam(val) {
   activeTeam = (val || '').trim();
   var team = TEAMS[activeTeam];
   if (team) {
+    stopAddressRealtime();
     webhookURL = '';
     SCHED_URL  = '';
     activeTerritories = [];
@@ -2560,6 +2916,7 @@ function launchApp(opts) {
     document.getElementById('page-app').style.display   = 'block';
 
     startScheduleRealtime();
+    startAddressRealtime();
     updateStats();
     buildList();
     initMap();
@@ -4941,6 +5298,8 @@ function confirmSignOut() {
     selSlot   = null;
     clearInterval(heartbeatTimer);
     stopScheduleRealtime();
+    stopAddressRealtime();
+    setAddressRealtimeStatus('connecting');
     if (mapObj) { mapObj.remove(); mapObj = null; }
 
     document.getElementById('page-app').style.display   = 'none';
