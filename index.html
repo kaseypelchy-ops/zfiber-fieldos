@@ -394,7 +394,7 @@
 </script>
 
 <!-- App logic -->
-<script defer src="app.js?v=offline-pin-safety-v1-20260728"></script>
+<script defer src="app.js?v=offline-pin-safety-dashboard-time-v3-20260728"></script>
 <!-- Service worker -->
 <script>
   if ('serviceWorker' in navigator) {
@@ -425,7 +425,7 @@
     });
 
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('sw.js?v=offline-pin-safety-v1-20260728')
+      navigator.serviceWorker.register('sw.js?v=offline-pin-safety-dashboard-time-v3-20260728')
         .then(function(registration) {
           registration.update().catch(function(){});
           setInterval(function() {

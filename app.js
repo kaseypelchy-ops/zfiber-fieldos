@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.1';
-var BUILD_ID    = '2026.07.28-offline-pin-safety-v1';
+var BUILD_ID    = '2026.07.28-offline-pin-safety-dashboard-time-v3';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -58,6 +58,32 @@ var appUpdateCheckTimer = null;
 var appUpdateReloading = false;
 var deferredAppUpdateBuild = '';
 var appUpdateDeferredNoticeShown = false;
+var APP_UPDATE_RELOAD_GUARD_KEY = 'fieldos_update_reload_guard_v1';
+
+function readAppUpdateReloadGuard() {
+  try {
+    var raw = sessionStorage.getItem(APP_UPDATE_RELOAD_GUARD_KEY) || '';
+    if (!raw) return null;
+    var parsed = JSON.parse(raw);
+    if (!parsed || !parsed.build || !parsed.at) return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeAppUpdateReloadGuard(build) {
+  try {
+    sessionStorage.setItem(APP_UPDATE_RELOAD_GUARD_KEY, JSON.stringify({
+      build: String(build || ''),
+      at: Date.now()
+    }));
+  } catch (e) {}
+}
+
+function clearAppUpdateReloadGuard() {
+  try { sessionStorage.removeItem(APP_UPDATE_RELOAD_GUARD_KEY); } catch (e) {}
+}
 
 function hasPendingOfflineWork() {
   return !!offlineSyncRunning || readOfflineQueue().length > 0;
@@ -71,6 +97,7 @@ function reloadForDeferredAppUpdateIfSafe() {
 
   appUpdateReloading = true;
   window.FIELDOS_WORKER_RELOAD_PENDING = false;
+  writeAppUpdateReloadGuard(deferredAppUpdateBuild || BUILD_ID);
   toast('Field activity is synced. Applying the FieldOS update…', 't-info');
   setTimeout(function() {
     window.location.reload();
@@ -89,7 +116,28 @@ function checkForRequiredAppUpdate() {
     .then(function(versionInfo) {
       var currentBuild = String(BUILD_ID || '').trim();
       var availableBuild = String((versionInfo && versionInfo.build) || '').trim();
-      if (!availableBuild || !currentBuild || availableBuild === currentBuild) return false;
+      if (!availableBuild || !currentBuild) return false;
+
+      if (availableBuild === currentBuild) {
+        clearAppUpdateReloadGuard();
+        return false;
+      }
+
+      // Never allow a bad or partial deployment to create an endless reload loop.
+      // If this tab already reloaded once for the same target build and still
+      // reports the old BUILD_ID, stop reloading and leave a visible warning.
+      var reloadGuard = readAppUpdateReloadGuard();
+      if (reloadGuard && reloadGuard.build === availableBuild && (Date.now() - Number(reloadGuard.at || 0)) < 300000) {
+        if (!appUpdateDeferredNoticeShown) {
+          appUpdateDeferredNoticeShown = true;
+          toast('FieldOS could not finish applying the update. Close this tab and reopen FieldOS.', 't-err');
+        }
+        console.error('FieldOS update reload stopped to prevent a loop.', {
+          currentBuild: currentBuild,
+          availableBuild: availableBuild
+        });
+        return false;
+      }
 
       if (hasPendingOfflineWork()) {
         deferredAppUpdateBuild = availableBuild;
