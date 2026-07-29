@@ -715,6 +715,8 @@
   let scheduleRealtimeChannel = null;
   let scheduleRefreshDebounce = null;
   let dashboardRefreshDebounce = null;
+  let dashboardRefreshPending = false;
+  let dashboardRealtimeConnected = false;
   let liveRefreshInFlight = false;
   let loading = false;
   let loadedTeamScope = null;
@@ -1483,11 +1485,18 @@
       els.statusLine.classList.add('error');
     } finally {
       liveRefreshInFlight = false;
+      if (dashboardRefreshPending && !document.hidden && !loading) {
+        dashboardRefreshPending = false;
+        queueDashboardRefresh('realtime');
+      }
     }
   }
 
   function queueDashboardRefresh(reason = 'realtime') {
-    if (document.hidden || loading) return;
+    if (document.hidden || loading || liveRefreshInFlight) {
+      dashboardRefreshPending = true;
+      return;
+    }
     if (dashboardRefreshDebounce) clearTimeout(dashboardRefreshDebounce);
     dashboardRefreshDebounce = setTimeout(() => {
       dashboardRefreshDebounce = null;
@@ -1517,6 +1526,7 @@
       clearTimeout(dashboardRefreshDebounce);
       dashboardRefreshDebounce = null;
     }
+    dashboardRealtimeConnected = false;
     if (scheduleRealtimeChannel) {
       try { supabaseClient.removeChannel(scheduleRealtimeChannel); } catch (err) {}
       scheduleRealtimeChannel = null;
@@ -1531,23 +1541,37 @@
     // not enabled in the Supabase publication.
     try {
       scheduleRealtimeChannel = supabaseClient
-        .channel('fieldos-team-dashboard-live-' + selectedTeamFilter())
+        .channel('fieldos-team-dashboard-live-' + selectedTeamFilter() + '-' + Math.random().toString(36).slice(2))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, () => queueDashboardRefresh('realtime'))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, () => queueDashboardRefresh('realtime'))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, () => queueDashboardRefresh('realtime'))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'address_events' }, () => queueDashboardRefresh('realtime'))
-        .subscribe();
+        .subscribe((status, error) => {
+          dashboardRealtimeConnected = status === 'SUBSCRIBED';
+          if (status === 'SUBSCRIBED') {
+            console.info('FieldOS dashboard realtime connected.');
+            queueDashboardRefresh('realtime');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            console.warn('Dashboard realtime unavailable; five-second reconciliation remains active.', status, error || '');
+          }
+        });
     } catch (err) {
+      dashboardRealtimeConnected = false;
       console.warn('Schedule realtime could not start; polling will remain active.', err);
     }
 
-    // Lightweight fallback: reload operational rows every 20 seconds. This
-    // catches new sales even when Supabase Realtime is disconnected.
+    /*
+     * Five-second reconciliation is intentional. It is not the primary path;
+     * it protects dashboards when a browser suspends its websocket or when a
+     * publication/RLS change prevents one table event from being delivered.
+     */
     scheduleRefreshTimer = setInterval(() => {
       if (!document.hidden && !loading && !liveRefreshInFlight) {
         refreshOperationalData('poll');
+      } else {
+        dashboardRefreshPending = true;
       }
-    }, 20000);
+    }, 5000);
   }
 
   async function refreshScheduleOnly() {

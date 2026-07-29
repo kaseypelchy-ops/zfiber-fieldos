@@ -19,7 +19,7 @@ var TEAM_LINK_ALIASES = {
 var APP_NAME    = 'Zito FieldOS';
 var APP_TAGLINE = 'Field Operations & Sales Intelligence';
 var APP_VERSION = '2.1.1';
-var BUILD_ID    = '2026.07.29-address-realtime-v4';
+var BUILD_ID    = '2026.07.29-full-live-sync-v5';
 var APP_ENV     = 'Production';
 
 var addresses  = [];
@@ -655,8 +655,13 @@ function refreshScheduleRealtimeView() {
   schedFetch(function(ok) {
     scheduleRefreshRunning = false;
 
-    var picker = document.getElementById('sched-picker');
-    if (ok && picker && !picker.classList.contains('hidden')) {
+    /*
+     * Always rebuild the schedule markup after a successful refresh. Earlier
+     * builds only rendered while the picker was visible, which allowed a
+     * background Realtime update to refresh data without refreshing the UI
+     * the rep saw when returning to the picker.
+     */
+    if (ok && document.getElementById('sched-picker')) {
       schedRenderWeek();
     }
 
@@ -699,55 +704,50 @@ function startScheduleRealtime() {
   if (!supabaseClient) return;
 
   stopScheduleRealtime();
+  setScheduleRealtimeStatus(navigator.onLine === false ? 'offline' : 'connecting');
 
-  function rowMatchesActiveSchedule(payload) {
-    var row = payload && (payload.new || payload.old);
-    if (!row) return true;
-
-    var scheduleTerritory = getScheduleTerritory ? getScheduleTerritory() : (activeTerritory || '');
-    var rowTerritory = String(row.territory || '').trim();
-
-    /*
-     * Some DELETE payloads and older booking rows may contain only the
-     * primary key. In that case refresh rather than incorrectly ignoring it.
-     */
-    if (!rowTerritory) return true;
-
-    return !(scheduleTerritory && rowTerritory && rowTerritory !== scheduleTerritory);
-  }
-
+  /*
+   * Refresh after every scheduling/sales change received by this client.
+   * The subsequent fetch is territory-scoped, so filtering payloads here is
+   * unnecessary and could incorrectly discard an event when older rows use a
+   * different territory format or a DELETE payload contains only a key.
+   */
   scheduleRealtimeChannel = supabaseClient
     .channel('fieldos-schedule-realtime-' + Math.random().toString(36).slice(2))
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, function(payload) {
-      if (rowMatchesActiveSchedule(payload)) queueScheduleRealtimeRefresh(150);
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_slots' }, function() {
+      queueScheduleRealtimeRefresh(100);
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, function(payload) {
-      if (rowMatchesActiveSchedule(payload)) queueScheduleRealtimeRefresh(150);
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_bookings' }, function() {
+      queueScheduleRealtimeRefresh(100);
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, function(payload) {
-      if (rowMatchesActiveSchedule(payload)) queueScheduleRealtimeRefresh(150);
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, function() {
+      queueScheduleRealtimeRefresh(100);
     })
     .subscribe(function(status, err) {
       scheduleRealtimeConnected = status === 'SUBSCRIBED';
 
       if (status === 'SUBSCRIBED') {
         console.info('FieldOS schedule realtime connected.');
+        setScheduleRealtimeStatus('live');
         queueScheduleRealtimeRefresh(0);
-        startScheduleRealtimePoll(30000);
+        // Keep a short reconciliation poll even while subscribed. Mobile
+        // browsers may suspend a websocket without immediately reporting it.
+        startScheduleRealtimePoll(5000);
         return;
       }
 
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         console.warn('FieldOS schedule realtime unavailable; using refresh fallback.', status, err || '');
-        startScheduleRealtimePoll(10000);
+        setScheduleRealtimeStatus('fallback');
+        startScheduleRealtimePoll(5000);
       }
     });
 
   /*
-   * Start a fallback immediately. Once SUBSCRIBED, the callback above slows
-   * this to 30 seconds while realtime events provide immediate updates.
+   * Start a fallback immediately. It remains lightweight and protects the
+   * schedule from missed websocket events on sleeping or weak-signal phones.
    */
-  startScheduleRealtimePoll(10000);
+  startScheduleRealtimePoll(5000);
 }
 
 function stopScheduleRealtime() {
@@ -789,6 +789,28 @@ function setAddressRealtimeStatus(state, detail) {
   } else {
     el.textContent = '◌ Connecting';
     el.title = detail || 'Connecting to live field updates…';
+  }
+}
+
+function setScheduleRealtimeStatus(state, detail) {
+  var el = document.getElementById('schedule-live-status');
+  if (!el) return;
+
+  el.classList.remove('live', 'connecting', 'fallback', 'offline');
+  el.classList.add(state || 'connecting');
+
+  if (state === 'live') {
+    el.textContent = '● Schedule Live';
+    el.title = detail || 'Install availability and new sales are updating live.';
+  } else if (state === 'fallback') {
+    el.textContent = '↻ Schedule Sync';
+    el.title = detail || 'Schedule Realtime is reconnecting. FieldOS is reconciling every five seconds.';
+  } else if (state === 'offline') {
+    el.textContent = '○ Schedule Offline';
+    el.title = detail || 'Schedule changes cannot be received until this phone reconnects.';
+  } else {
+    el.textContent = '◌ Schedule';
+    el.title = detail || 'Connecting to live schedule and sales updates…';
   }
 }
 
@@ -1634,6 +1656,7 @@ window.addEventListener('offline', function(){
   scheduleRealtimeConnected = false;
   addressRealtimeConnected = false;
   setAddressRealtimeStatus('offline');
+  setScheduleRealtimeStatus('offline');
 });
 
 document.addEventListener('visibilitychange', function() {
