@@ -956,6 +956,38 @@
     return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
   }
 
+
+  /*
+   * Date inputs represent calendar days in the dashboard viewer's local
+   * timezone. Supabase stores created_at as timestamptz/UTC, so sending a
+   * bare value such as 2026-07-28T23:59:59 makes Postgres interpret the
+   * cutoff as UTC. That hid evening activity after 8:00 p.m. Eastern during
+   * daylight saving time. Convert local day boundaries to explicit UTC ISO
+   * timestamps before querying.
+   */
+  function localDayBoundaryUtcIso(isoDate, endOfDay = false) {
+    const parts = String(isoDate || '').split('-').map(Number);
+    if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return '';
+
+    const d = endOfDay
+      ? new Date(parts[0], parts[1] - 1, parts[2] + 1, 0, 0, 0, 0)
+      : new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+
+    if (endOfDay) d.setMilliseconds(-1);
+    return d.toISOString();
+  }
+
+  function localDateKey(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return String(value).slice(0, 10);
+    return [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0')
+    ].join('-');
+  }
+
   function addDaysIso(isoDate, days) {
     const parts = String(isoDate || todayIso()).split('-').map(Number);
     const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
@@ -1348,14 +1380,14 @@
     const bookingFilters = [];
 
     if (f.start) {
-      eventFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
-      salesFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
-      bookingFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+      eventFilters.push({ type: 'gte', column: 'created_at', value: localDayBoundaryUtcIso(f.start, false) });
+      salesFilters.push({ type: 'gte', column: 'created_at', value: localDayBoundaryUtcIso(f.start, false) });
+      bookingFilters.push({ type: 'gte', column: 'created_at', value: localDayBoundaryUtcIso(f.start, false) });
     }
     if (f.end) {
-      eventFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
-      salesFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
-      bookingFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+      eventFilters.push({ type: 'lte', column: 'created_at', value: localDayBoundaryUtcIso(f.end, true) });
+      salesFilters.push({ type: 'lte', column: 'created_at', value: localDayBoundaryUtcIso(f.end, true) });
+      bookingFilters.push({ type: 'lte', column: 'created_at', value: localDayBoundaryUtcIso(f.end, true) });
     }
 
     return { eventFilters, salesFilters, bookingFilters };
@@ -1628,14 +1660,14 @@
       // Keep date filtering, but do not rely only on team_slug for sales/orders.
       // RLS should still be the hard security boundary for team users.
       if (f.start) {
-        eventFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
-        salesFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
-        bookingFilters.push({ type: 'gte', column: 'created_at', value: f.start + 'T00:00:00' });
+        eventFilters.push({ type: 'gte', column: 'created_at', value: localDayBoundaryUtcIso(f.start, false) });
+        salesFilters.push({ type: 'gte', column: 'created_at', value: localDayBoundaryUtcIso(f.start, false) });
+        bookingFilters.push({ type: 'gte', column: 'created_at', value: localDayBoundaryUtcIso(f.start, false) });
       }
       if (f.end) {
-        eventFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
-        salesFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
-        bookingFilters.push({ type: 'lte', column: 'created_at', value: f.end + 'T23:59:59' });
+        eventFilters.push({ type: 'lte', column: 'created_at', value: localDayBoundaryUtcIso(f.end, true) });
+        salesFilters.push({ type: 'lte', column: 'created_at', value: localDayBoundaryUtcIso(f.end, true) });
+        bookingFilters.push({ type: 'lte', column: 'created_at', value: localDayBoundaryUtcIso(f.end, true) });
       }
 
       const scheduleWindow = scheduleDateWindow(14);
@@ -1812,7 +1844,7 @@
   }
 
   function workedDayKey(row) {
-    return String(firstNonEmpty(row?.created_at, row?.knocked_at, row?.updated_at)).slice(0, 10);
+    return localDateKey(firstNonEmpty(row?.created_at, row?.knocked_at, row?.updated_at));
   }
 
   function workedRepKey(row) {
@@ -2331,7 +2363,7 @@
     const installed = renderedState.sales.filter(s => s.lifecycle_key === 'installed').length;
     const rescheduled = renderedState.sales.filter(s => s.lifecycle_key === 'needs_rescheduled').length;
     const invoiced = renderedState.sales.filter(s => s.lifecycle_key === 'invoiced').length;
-    const todaySales = renderedState.sales.filter(s => String(s.created_at || '').slice(0,10) === today).length;
+    const todaySales = renderedState.sales.filter(s => localDateKey(s.created_at) === today).length;
     const worked = renderedState.reps.reduce((sum, r) => sum + Number(r.worked || 0), 0);
     const close = worked ? renderedState.sales.length / worked : 0;
 
@@ -2636,7 +2668,7 @@
       const date = new Date(s.created_at);
       if (isNaN(date.getTime())) return;
 
-      const day = String(s.created_at || '').slice(0, 10);
+      const day = localDateKey(s.created_at);
       const wk = weekKey(date);
       const mo = monthKey(date);
 
@@ -2738,7 +2770,7 @@
 
     const trendMap = new Map();
     renderedState.sales.forEach(s => {
-      const day = String(s.created_at || '').slice(0, 10);
+      const day = localDateKey(s.created_at);
       if (!day) return;
       trendMap.set(day, (trendMap.get(day) || 0) + 1);
     });
