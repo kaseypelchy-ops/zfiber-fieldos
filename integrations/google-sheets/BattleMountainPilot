@@ -1,0 +1,269 @@
+const FIELDOS_PILOT = Object.freeze({
+  SPREADSHEET_ID: '16b2htgg29qEQ1eVcXjY9oPJ4JkK2xlgLR0LvuOCMYMA',
+  SHEET_NAME: 'Pacific/ Mountain',
+  SHEET_ID: 1352848155,
+  BATTLE_MOUNTAIN_COLUMN: 4,
+  FIRST_COLUMN: 1,
+  COLUMN_COUNT: 4,
+  PILOT_YEAR: 2026,
+  TIMEZONE: 'America/New_York',
+  MAX_APPOINTMENTS: 250,
+});
+
+const FIELDOS_PILOT_IGNORED_VALUES = new Set([
+  'BLOCK',
+  'BLOCKED',
+  'COAX',
+  'DO NOT SCHED',
+  'DO NOT SCHEDULE',
+  'IN TX',
+  'NO ACT',
+  'NO ACT.',
+  'NO TECH',
+  'NO TECH IN AREA',
+  'TECH OFF',
+  'TRAVEL',
+  'USE SALES AND SCHEDULE TRACKER',
+]);
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('FieldOS Pilot')
+    .addItem('Configure pilot', 'configureBattleMountainPilot')
+    .addItem('Run Battle Mountain audit', 'runBattleMountainPilot')
+    .addToUi();
+}
+
+function configureBattleMountainPilot() {
+  const ui = SpreadsheetApp.getUi();
+  const endpointPrompt = ui.prompt(
+    'FieldOS pilot endpoint',
+    'Enter the complete endpoint URL, ending in /api/google-sheet-schedule-pilot',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (endpointPrompt.getSelectedButton() !== ui.Button.OK) return;
+
+  const endpoint = String(endpointPrompt.getResponseText() || '').trim();
+  if (!/^https:\/\/[^\s]+\/api\/google-sheet-schedule-pilot$/.test(endpoint)) {
+    throw new Error('Enter a valid HTTPS FieldOS pilot endpoint.');
+  }
+
+  const secretPrompt = ui.prompt(
+    'FieldOS pilot secret',
+    'Enter the GOOGLE_SHEET_PILOT_SECRET value from Vercel.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (secretPrompt.getSelectedButton() !== ui.Button.OK) return;
+
+  const secret = String(secretPrompt.getResponseText() || '').trim();
+  if (secret.length < 24) throw new Error('The pilot secret must contain at least 24 characters.');
+
+  PropertiesService.getScriptProperties().setProperties({
+    FIELDOS_PILOT_ENDPOINT: endpoint,
+    FIELDOS_SHEET_PILOT_SECRET: secret,
+  });
+  ui.alert('Battle Mountain pilot configured. No FieldOS bookings have been changed.');
+}
+
+function runBattleMountainPilot() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (spreadsheet.getId() !== FIELDOS_PILOT.SPREADSHEET_ID) {
+    throw new Error('This script is attached to the wrong Google Sheet.');
+  }
+
+  const sheet = spreadsheet.getSheetByName(FIELDOS_PILOT.SHEET_NAME);
+  if (!sheet || sheet.getSheetId() !== FIELDOS_PILOT.SHEET_ID) {
+    throw new Error('The Pacific/ Mountain tab could not be verified.');
+  }
+
+  const properties = PropertiesService.getScriptProperties();
+  const endpoint = String(properties.getProperty('FIELDOS_PILOT_ENDPOINT') || '').trim();
+  const secret = String(properties.getProperty('FIELDOS_SHEET_PILOT_SECRET') || '').trim();
+  if (!endpoint || !secret) {
+    throw new Error('Run “FieldOS Pilot → Configure pilot” first.');
+  }
+
+  const appointments = scanBattleMountainAppointments_(sheet);
+  if (appointments.length > FIELDOS_PILOT.MAX_APPOINTMENTS) {
+    throw new Error(`The scan found ${appointments.length} appointments; the pilot maximum is ${FIELDOS_PILOT.MAX_APPOINTMENTS}.`);
+  }
+
+  const payload = {
+    mode: 'audit',
+    scan_complete: true,
+    spreadsheet_id: FIELDOS_PILOT.SPREADSHEET_ID,
+    sheet_id: FIELDOS_PILOT.SHEET_ID,
+    sheet_name: FIELDOS_PILOT.SHEET_NAME,
+    generated_at: new Date().toISOString(),
+    appointments,
+  };
+
+  const response = UrlFetchApp.fetch(endpoint, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-fieldos-sheet-secret': secret },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+
+  const statusCode = response.getResponseCode();
+  let result;
+  try {
+    result = JSON.parse(response.getContentText() || '{}');
+  } catch (error) {
+    result = { error: response.getContentText() || 'Invalid response from FieldOS.' };
+  }
+
+  if (statusCode < 200 || statusCode >= 300 || result.ok !== true) {
+    throw new Error(`FieldOS pilot failed (${statusCode}): ${result.error || 'Unknown error'}`);
+  }
+
+  const countText = Object.keys(result.counts || {})
+    .sort()
+    .map((key) => `${key}: ${result.counts[key]}`)
+    .join('\n');
+  SpreadsheetApp.getUi().alert(
+    'Battle Mountain audit complete',
+    `${result.scanned_appointments} appointment(s) scanned.\n\n${countText || 'No future appointments found.'}\n\nLive FieldOS bookings changed: No`,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+function scanBattleMountainAppointments_(sheet) {
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  const range = sheet.getRange(1, FIELDOS_PILOT.FIRST_COLUMN, lastRow, FIELDOS_PILOT.COLUMN_COUNT);
+  const values = range.getValues();
+  const displayValues = range.getDisplayValues();
+  const todayText = Utilities.formatDate(new Date(), FIELDOS_PILOT.TIMEZONE, 'yyyy-MM-dd');
+  const appointments = [];
+  let currentDate = '';
+  let battleMountainBlock = false;
+
+  for (let index = 0; index < displayValues.length; index += 1) {
+    const displayRow = displayValues[index];
+    const rawRow = values[index];
+    const dayLabel = String(displayRow[0] || '').trim().toUpperCase();
+    const possibleDate = parsePilotDate_(rawRow[1], displayRow[1]);
+
+    if (/^(MON|TUE|WED|THU|FRI)$/.test(dayLabel) && possibleDate) {
+      currentDate = possibleDate;
+      battleMountainBlock = /BATTLE\s+MOUNTAIN/i.test(String(displayRow[3] || ''));
+      continue;
+    }
+
+    const timeRange = normalizePilotTimeRange_(displayRow[1]);
+    if (!currentDate || !battleMountainBlock || !timeRange || currentDate < todayText) continue;
+
+    const rawCell = String(displayRow[FIELDOS_PILOT.BATTLE_MOUNTAIN_COLUMN - 1] || '').trim();
+    if (!rawCell) continue;
+
+    const sourceCell = sheet.getRange(index + 1, FIELDOS_PILOT.BATTLE_MOUNTAIN_COLUMN).getA1Notation();
+    splitPilotCell_(rawCell).forEach((entry, entryIndex) => {
+      if (isIgnoredPilotValue_(entry)) return;
+      const accountMatch = entry.match(/\b(\d{6,8})\b/);
+      const accountNumber = accountMatch ? accountMatch[1] : '';
+      const parsedAddress = accountNumber
+        ? entry.replace(accountMatch[0], '').replace(/^[\s<:;,#-]+|[\s,;]+$/g, '').trim()
+        : entry;
+      const baseKey = accountNumber
+        ? `gs:${FIELDOS_PILOT.SPREADSHEET_ID}:${FIELDOS_PILOT.SHEET_ID}:account:${accountNumber}`
+        : `gs:${FIELDOS_PILOT.SPREADSHEET_ID}:${FIELDOS_PILOT.SHEET_ID}:hash:${pilotHash_(`${currentDate}|${timeRange}|${entry}`)}`;
+
+      appointments.push({
+        source_key: baseKey,
+        source_cell: entryIndex ? `${sourceCell}#${entryIndex + 1}` : sourceCell,
+        appointment_date: currentDate,
+        time_range: timeRange,
+        time_label: pilotStartTime_(timeRange),
+        external_account_number: accountNumber,
+        raw_value: entry,
+        parsed_address: parsedAddress,
+      });
+    });
+  }
+
+  const keyCounts = appointments.reduce((counts, appointment) => {
+    counts[appointment.source_key] = Number(counts[appointment.source_key] || 0) + 1;
+    return counts;
+  }, {});
+
+  appointments.forEach((appointment) => {
+    if (keyCounts[appointment.source_key] > 1) {
+      appointment.duplicate_account_in_sheet = true;
+      appointment.source_key = `${appointment.source_key}:duplicate:${appointment.source_cell}`;
+    }
+  });
+  return appointments;
+}
+
+function parsePilotDate_(rawValue, displayValue) {
+  if (Object.prototype.toString.call(rawValue) === '[object Date]' && !Number.isNaN(rawValue.getTime())) {
+    return Utilities.formatDate(rawValue, FIELDOS_PILOT.TIMEZONE, 'yyyy-MM-dd');
+  }
+
+  const text = String(displayValue || rawValue || '').trim().replace(/,/g, ' ');
+  const match = text.match(/^([A-Za-z]{3,9})\s+(\d{1,2})(?:\s+(\d{4}))?$/);
+  if (!match) return '';
+
+  const months = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+  };
+  const month = months[match[1].toLowerCase()];
+  const day = Number(match[2]);
+  const year = Number(match[3] || FIELDOS_PILOT.PILOT_YEAR);
+  if (!month || day < 1 || day > 31) return '';
+
+  const date = new Date(year, month - 1, day, 12, 0, 0);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+  return Utilities.formatDate(date, FIELDOS_PILOT.TIMEZONE, 'yyyy-MM-dd');
+}
+
+function normalizePilotTimeRange_(value) {
+  const compact = String(value || '')
+    .trim()
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, '')
+    .replace(/AM|PM/gi, '');
+  const aliases = {
+    '8:00-10:00': '8:00-10:00',
+    '8-10': '8:00-10:00',
+    '10:00-12:00': '10:00-12:00',
+    '10-12': '10:00-12:00',
+    '1:00-3:00': '1:00-3:00',
+    '1-3': '1:00-3:00',
+    '3:00-5:00': '3:00-5:00',
+    '3-5': '3:00-5:00',
+  };
+  return aliases[compact] || '';
+}
+
+function pilotStartTime_(timeRange) {
+  return {
+    '8:00-10:00': '8:00 AM',
+    '10:00-12:00': '10:00 AM',
+    '1:00-3:00': '1:00 PM',
+    '3:00-5:00': '3:00 PM',
+  }[timeRange] || '';
+}
+
+function splitPilotCell_(value) {
+  return String(value || '')
+    .split(/\r?\n+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function isIgnoredPilotValue_(value) {
+  const normalized = String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  return FIELDOS_PILOT_IGNORED_VALUES.has(normalized);
+}
+
+function pilotHash_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''), Utilities.Charset.UTF_8)
+    .map((byte) => (`0${(byte + 256).toString(16)}`).slice(-2))
+    .join('')
+    .slice(0, 32);
+}
