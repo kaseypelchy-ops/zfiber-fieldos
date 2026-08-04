@@ -1,0 +1,178 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import test from 'node:test';
+import vm from 'node:vm';
+
+function loadEndpointHelpers() {
+  const context = {
+    console,
+    Set,
+    Object,
+    Number,
+    String,
+    Date,
+    Error,
+    RegExp,
+    JSON,
+    process: { env: {} },
+    crypto,
+  };
+  vm.createContext(context);
+  const source = fs
+    .readFileSync(new URL('../api/google-sheet-schedule-pilot.js', import.meta.url), 'utf8')
+    .replace(/^import .*?;\s*$/m, 'const createClient = () => ({});')
+    .replace(/export default async function handler/, 'async function handler')
+    .replace(/export function /g, 'function ');
+  new vm.Script(source, { filename: 'google-sheet-schedule-pilot.js' }).runInContext(context);
+  return context;
+}
+
+const {
+  bookingIsActive,
+  isValidIsoDate,
+  normalizeKey,
+  normalizeTime,
+  saleIsActive,
+} = loadEndpointHelpers();
+
+test('pilot endpoint cannot write to live scheduling tables', () => {
+  const source = fs.readFileSync(
+    new URL('../api/google-sheet-schedule-pilot.js', import.meta.url),
+    'utf8'
+  );
+  const compact = source.replace(/\s+/g, ' ');
+
+  for (const table of ['schedule_bookings', 'schedule_slots', 'sales_orders']) {
+    assert.doesNotMatch(
+      compact,
+      new RegExp(`from\\(['\"]${table}['\"]\\)\\s*\\.(?:insert|upsert|update|delete)\\(`),
+      `${table} must stay read-only during the pilot`
+    );
+  }
+});
+
+test('endpoint normalizes FieldOS slot times', () => {
+  assert.equal(normalizeTime('8:00-10:00'), '8:00 AM');
+  assert.equal(normalizeTime('10:00 AM'), '10:00 AM');
+  assert.equal(normalizeTime('13:00'), '1:00 PM');
+  assert.equal(normalizeTime('3:00-5:00'), '3:00 PM');
+  assert.equal(normalizeTime('7:00 PM'), '');
+});
+
+test('endpoint validates dates and active statuses', () => {
+  assert.equal(isValidIsoDate('2026-08-10'), true);
+  assert.equal(isValidIsoDate('2026-02-30'), false);
+  assert.equal(bookingIsActive({ status: 'booked' }), true);
+  assert.equal(bookingIsActive({ status: 'needs rescheduled' }), false);
+  assert.equal(saleIsActive({ review_status: 'submitted' }), true);
+  assert.equal(saleIsActive({ review_status: 'invoiced' }), false);
+  assert.equal(normalizeKey('Battle Mountain, NV'), 'battle_mountain_nv');
+});
+
+function columnName(column) {
+  let value = column;
+  let result = '';
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+function createAppsScriptContext() {
+  const context = {
+    console,
+    Set,
+    Object,
+    Number,
+    String,
+    Date,
+    Error,
+    RegExp,
+    JSON,
+    Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest(_algorithm, value) {
+        return [...crypto.createHash('sha256').update(String(value), 'utf8').digest()]
+          .map((byte) => (byte > 127 ? byte - 256 : byte));
+      },
+      formatDate(value, _timezone, format) {
+        assert.equal(format, 'yyyy-MM-dd');
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      },
+    },
+  };
+  vm.createContext(context);
+  const source = fs.readFileSync(new URL('../integrations/google-sheets/BattleMountainPilot.gs', import.meta.url), 'utf8');
+  new vm.Script(source, { filename: 'BattleMountainPilot.gs' }).runInContext(context);
+  return context;
+}
+
+test('Apps Script parses the current Battle Mountain board layout', () => {
+  const rows = [
+    ['MON', 'Aug 10', 'Elko (Jason Stevenson)', 'Battle Mountain (Jason Stevenson)'],
+    ['', '8:00-10:00', '', ''],
+    ['', '10:00-12:00', '', '1100643 545 W TULE ST'],
+    ['', '1:00-3:00', '', ''],
+    ['', '3:00-5:00', '', '1100751 640 MAPLE CT'],
+    ['TUE', 'Aug, 11', 'Elko (Jason Stevenson)', 'Battle Mountain (Jason Stevenson)'],
+    ['', '8:00-10:00', '', ''],
+    ['', '10:00-12:00', '', ''],
+    ['', '1:00-3:00', '', ''],
+    ['', '3:00-5:00', '', '1100752 455 E 5TH ST'],
+    ['WED', 'Aug, 12', 'Elko (Jason Stevenson)', 'Battle Mountain (Jason Stevenson)'],
+    ['', '8:00-10:00', '', ''],
+    ['', '10:00-12:00', '', '1100794 185 W 2ND ST'],
+    ['', '1:00-3:00', '', ''],
+    ['', '3:00-5:00', '', ''],
+    ['THU', 'Aug, 13', 'Elko (Jason Stevenson)', 'Battle Mountain (Jason Stevenson)'],
+    ['', '8:00-10:00', '', ''],
+    ['', '10:00-12:00', '', ''],
+    ['', '1:00-3:00', '', ''],
+    ['', '3:00-5:00', '', 'COAX'],
+    ['FRI', 'Aug, 14', 'Elko (Jason Stevenson)', 'Battle Mountain (Jason Stevenson)'],
+    ['', '8:00-10:00', '', ''],
+    ['', '10:00-12:00', '', ''],
+    ['', '1:00-3:00', '', ''],
+    ['', '3:00-5:00', '', '1100834 83 W 3RD ST'],
+  ];
+  const context = createAppsScriptContext();
+  const sheet = {
+    getLastRow: () => rows.length,
+    getRange(row, column, rowCount, columnCount) {
+      if (rowCount && columnCount) {
+        const selected = rows.slice(row - 1, row - 1 + rowCount).map((sourceRow) =>
+          sourceRow.slice(column - 1, column - 1 + columnCount)
+        );
+        return {
+          getValues: () => selected,
+          getDisplayValues: () => selected.map((sourceRow) => sourceRow.map(String)),
+        };
+      }
+      return { getA1Notation: () => `${columnName(column)}${row}` };
+    },
+  };
+
+  const appointments = JSON.parse(JSON.stringify(
+    context.scanBattleMountainAppointments_(sheet)
+  ));
+  assert.equal(appointments.length, 5);
+  assert.deepEqual(
+    appointments.map((row) => row.external_account_number),
+    ['1100643', '1100751', '1100752', '1100794', '1100834']
+  );
+  assert.deepEqual(
+    appointments.map((row) => row.appointment_date),
+    ['2026-08-10', '2026-08-10', '2026-08-11', '2026-08-12', '2026-08-14']
+  );
+  assert.deepEqual(
+    appointments.map((row) => row.time_label),
+    ['10:00 AM', '3:00 PM', '3:00 PM', '10:00 AM', '3:00 PM']
+  );
+});
