@@ -1,0 +1,9 @@
+{
+  "name": "zito-fieldos",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.55.0",
+    "nodemailer": "^7.0.5"
+  }
+}
